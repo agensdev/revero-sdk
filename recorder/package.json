@@ -1,0 +1,59 @@
+{
+  "name": "@revero/recorder",
+  "version": "0.1.0",
+  "description": "Durable browser recording and direct upload for Revero integrations",
+  "license": "Apache-2.0",
+  "homepage": "https://docs.revero.no/browser-recorder",
+  "bugs": {
+    "url": "https://github.com/agensdev/revero-sdk/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agensdev/revero-sdk.git",
+    "directory": "recorder"
+  },
+  "private": false,
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bun build ./src/index.ts ./src/core.ts ./src/react.tsx ./src/indexeddb-store.ts --outdir ./dist --target browser --format esm --external react --production && tsc --emitDeclarationOnly --declaration --declarationMap --outDir ./dist",
+    "prepack": "bun run build",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./indexeddb": {
+      "types": "./dist/indexeddb-store.d.ts",
+      "import": "./dist/indexeddb-store.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.10",
+    "typescript": "^5.9.3"
+  }
+}

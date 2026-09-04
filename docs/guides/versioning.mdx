@@ -1,0 +1,27 @@
+---
+title: Versions and deprecations
+description: Compatibility promises for the Revero server SDKs and browser recorder.
+slug: versioning
+---
+
+The `revero` Rust SDK and `@revero/recorder` follow Semantic Versioning and
+version independently. An update to one does not force an update to the other.
+
+Public API `/v1` and SDK major versions are related contracts, not the same
+number:
+
+- compatible API additions produce an SDK minor release;
+- compatible fixes produce a patch release;
+- removing or changing a public SDK symbol requires a new SDK major; and
+- one SDK major may support more than one HTTP API version.
+
+Before `1.0.0`, a minor version may contain a breaking change and its release
+notes must say so explicitly. After `1.0.0`, a deprecated public symbol remains
+functional for at least six months and through the next minor release. Its
+replacement is documented before a major release removes it.
+
+Security or legal emergencies may shorten that window. The release notes must
+name the exception and the migration path.
+
+Bad immutable crates.io releases are yanked and replaced by a new version. npm
+releases are deprecated rather than silently re-tagged.

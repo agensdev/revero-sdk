@@ -1,0 +1,10 @@
+# The OpenAPI document is the generator input and is exported from FastAPI.
+openapi.json
+
+# These files are the separately tested, additive layer over generated code.
+.gitignore
+README.md
+CHANGELOG.md
+LICENSE
+Cargo.lock
+src/extensions/**

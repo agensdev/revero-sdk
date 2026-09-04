@@ -1,0 +1,21 @@
+{
+  "name": "revero-recorder-release-fixture",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "start": "next start -p 3377",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "next": "16.2.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "@types/node": "22.19.7",
+    "@types/react": "19.2.10",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3"
+  }
+}

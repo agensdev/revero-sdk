@@ -1,0 +1,35 @@
+---
+title: Reliability and recovery
+description: Retry commands safely, bound polling, and reconcile duplicate or missing webhooks.
+slug: reliability
+---
+
+## Replay and retry are different
+
+- **Replay** means you never received the response. Send the same completion
+  command with the same `Idempotency-Key`; Revero returns the same operation.
+- **Retry** means the operation reached `failed` and its typed failure says
+  `retryable: true`. Send completion again with a new key. You do not need to
+  upload the audio again.
+
+A new key while work is still outstanding returns `409`. A new key after a
+non-retryable failure also returns `409`.
+
+## Bound every poll
+
+Use the SDK polling helper with an application deadline. It observes
+`Retry-After` when Revero returns `429` and bounds exponential backoff for other
+non-terminal responses. A timeout is an uncertain observation, not evidence
+that processing failed: retain the operation id and read it again later.
+
+## Treat reads as authoritative
+
+Webhook delivery is at-least-once and unordered. Deduplicate on event id, then
+read the linked meeting or operation. A dropped webhook costs one later read;
+it does not change operation state or lose an output.
+
+## Preserve stable codes
+
+Every non-token API error has a stable `code` and a human-oriented `message`.
+Operation failures additionally report `failure_code` and `retryable`. Branch
+on the codes and boolean. Log the message, but never parse it.

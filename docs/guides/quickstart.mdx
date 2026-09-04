@@ -1,0 +1,262 @@
+---
+title: Record a meeting and retrieve its outputs
+description: The complete Revero workflow, from backend credentials to reconciled outputs.
+slug: welcome
+---
+
+This is the shortest supported path from a meeting in your product to generated
+documents in your storage. The OAuth client secret and service access token stay
+in your backend. Your browser receives only a short-lived upload instruction.
+
+<Note>
+  Examples use Rust because it is the first released server SDK. TypeScript and
+  Python will be added as tabs on this page, not as separate guides.
+</Note>
+
+## Before you start
+
+Ask your Revero organisation administrator for a client id and client secret
+with these scopes:
+
+- `meetings:write` to create meetings;
+- `recordings:write` to prepare and complete recordings; and
+- `meetings:read` to read meetings, operations and outputs.
+
+Store both values as backend-only secrets. Choose the base URL for the Revero
+environment your organisation has been provisioned in; never guess one from a
+browser URL.
+
+## 1. Create the backend client
+
+The client exchanges your credentials through OAuth Client Credentials and
+caches the short-lived service token. Do not add a token route to your frontend.
+
+<Tabs>
+  <Tab title="Rust" language="rust">
+
+```rust
+use revero::{ReveroClient, ReveroClientOptions, Scope};
+
+let revero = ReveroClient::new(ReveroClientOptions::new(
+    std::env::var("REVERO_BASE_URL")?,
+    std::env::var("REVERO_CLIENT_ID")?,
+    std::env::var("REVERO_CLIENT_SECRET")?,
+    vec![
+        Scope::MeetingsRead,
+        Scope::MeetingsWrite,
+        Scope::RecordingsWrite,
+    ],
+))?;
+```
+
+  </Tab>
+</Tabs>
+
+## 2. Create the meeting
+
+`external_id` is your stable identifier. Reusing it returns the same meeting,
+which makes a lost response safe to replay. `output_profiles` names the
+documents you need. Put authoritative facts that generation must not reinterpret
+in `locked_context`.
+
+<Tabs>
+  <Tab title="Rust" language="rust">
+
+```rust
+let meeting = revero
+    .create_meeting(&MeetingCreate {
+        external_id: "board-meeting-2026-09-04".into(),
+        output_profiles: Some(vec!["transcript".into(), "minutes".into()]),
+        locked_context: Some(serde_json::from_value(serde_json::json!({
+            "organisation": "Example municipality",
+            "meeting_kind": "Board meeting"
+        }))?),
+        language: Some("en".into()),
+    })
+    .await?;
+```
+
+  </Tab>
+</Tabs>
+
+External ids are unique inside your Revero organisation, not globally.
+
+## 3. Prepare browser upload
+
+Prepare one recording from your backend. Return only the `upload` object and
+the recording id to the browser. Preserve the method, URL and headers exactly;
+they are one short-lived instruction, not fields to reinterpret.
+
+<Tabs>
+  <Tab title="Rust" language="rust">
+
+```rust
+let prepared = revero
+    .prepare_recording(
+        &meeting.id,
+        &RecordingCreate {
+            content_type: Some("audio/webm".into()),
+        },
+    )
+    .await?;
+
+// Send `prepared.id` and `prepared.upload` to your frontend.
+// Never send the Revero client secret or service access token.
+```
+
+  </Tab>
+</Tabs>
+
+The ready-made React component and headless alternative are shown in
+[Record from a browser](/browser-recorder).
+
+## 4. Upload directly, then complete from the backend
+
+The browser sends the audio straight to the provided URL with the provided
+method and headers. Once that upload succeeds, call `complete` from your
+backend with an idempotency key that you persist with the command.
+
+<Tabs>
+  <Tab title="Rust" language="rust">
+
+```rust
+let operation = revero
+    .complete_recording(&prepared.id, "complete:board-meeting-2026-09-04")
+    .await?;
+```
+
+  </Tab>
+</Tabs>
+
+If the network drops before you see the response, replay with the **same** key.
+Revero returns the same operation and does not start duplicate work. Use a new
+key only after a terminal failure explicitly says `retryable: true`.
+
+## 5. Wait for authoritative operation state
+
+Operations and meetings are authoritative; webhooks only reduce how long you
+wait before reading them. Every wait must have a deadline. The SDK honours
+`Retry-After` on `429`, applies bounded backoff between other non-terminal
+reads, and returns the last typed operation when the deadline expires.
+
+<Tabs>
+  <Tab title="Rust" language="rust">
+
+```rust
+let settled = revero
+    .wait_for_operation(
+        &operation.id,
+        WaitOptions::new(std::time::Duration::from_secs(10 * 60)),
+    )
+    .await?;
+
+if settled.status == PublicOperationStatus::Failed {
+    tracing::warn!(
+        code = ?settled.failure_code,
+        retryable = settled.retryable,
+    );
+}
+```
+
+  </Tab>
+</Tabs>
+
+Branch on stable error and failure codes, never on their human-readable
+messages.
+
+## 6. Retrieve and store outputs
+
+List the meeting outputs and fetch the completed ones. The returned content is
+your application data: copy it into the long-term storage and access-control
+model you promise your users. Revero's temporary copy follows your
+organisation's configured retention policy.
+
+<Tabs>
+  <Tab title="Rust" language="rust">
+
+```rust
+for output in revero.list_outputs(&meeting.id).await? {
+    if output.status == PublicOutputStatus::Completed {
+        let document = revero.get_output(&output.id).await?;
+        customer_storage.put(&meeting.external_id, document).await?;
+    }
+}
+```
+
+  </Tab>
+</Tabs>
+
+## 7. Verify webhooks and reconcile
+
+Verify `Flyt-Signature` against the raw request bytes before parsing JSON.
+Reject timestamps more than five minutes from your clock and accept any valid
+`v1` signature during secret rotation. Deduplicate on the envelope `id`, also
+sent as `Flyt-Event-Id`; delivery is at-least-once and unordered.
+
+<Tabs>
+  <Tab title="Rust" language="rust">
+
+```rust
+use revero::webhooks::{self, WebhookEnvelope};
+
+let event: WebhookEnvelope = webhooks::verify_and_parse(
+    signature_header,
+    signing_secret.as_bytes(),
+    raw_body,
+    unix_timestamp_now,
+    webhooks::DEFAULT_TOLERANCE_SECONDS,
+)?;
+
+if deduplication_store.insert_once(&event.id).await? {
+    // Follow the event links with the backend client. The API state wins if a
+    // webhook was delayed, duplicated or delivered out of order.
+    reconcile_from_revero(&revero, &event).await?;
+}
+```
+
+  </Tab>
+</Tabs>
+
+Return `2xx` quickly. Revero retries `429`, `5xx` and timeouts, does not follow
+redirects, and permanently stops on other `4xx` responses.
+
+## Give this task to a coding agent
+
+Copy the prompt below into an agent working in your Rust/Axum and Next.js/React
+repository. It deliberately names the source of truth and the complete outcome.
+
+```text
+Implement a production-shaped Revero integration in this repository.
+
+Use the Revero documentation MCP server at
+https://docs.revero.no/_mcp/server and the Rust examples at
+https://docs.revero.no/welcome.md. Do not infer undocumented
+URLs, fields, error codes or retry behaviour.
+
+Backend (Rust with Axum): use the `revero` crate. Keep REVERO_CLIENT_ID,
+REVERO_CLIENT_SECRET, the service access token and webhook signing secret on
+the server. Create endpoints that create a meeting with external_id,
+output_profiles and locked_context; prepare a recording; return only the
+short-lived upload instruction and recording id to the browser; complete the
+recording with a stable Idempotency-Key; wait for the operation with a hard
+deadline while respecting Retry-After and rate limits; retrieve completed
+outputs; and verify webhook signatures over the raw body before decoding the
+typed envelope. Deduplicate webhooks by event id and reconcile every event by
+reading authoritative API state.
+
+Frontend (Next.js with React): use `@revero/recorder`. Provide both a page with
+the ready-made ReveroRecorder component and a small headless example. Browser
+code may call only the customer backend and the short-lived upload URL. It must
+never accept or expose an OAuth client secret or Revero service access token.
+
+Persist returned output documents in the customer application's own storage.
+Add tests for replaying completion with the same idempotency key, a polling
+deadline, Retry-After, duplicate webhook delivery, SSR import of the recorder,
+and an interrupted local recording that resumes upload. Run formatting,
+typechecking, tests and production builds, then report the commands and exact
+results.
+```
+
+The Revero release harness runs this prompt against clean Axum and Next.js
+fixtures and compiles the result against the packed package candidates. A prose
+review is not considered verification.

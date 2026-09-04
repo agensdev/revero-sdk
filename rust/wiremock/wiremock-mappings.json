@@ -1,0 +1,312 @@
+{
+  "mappings": [
+    {
+      "id": "e14752f7-81a8-4fc1-a3c0-e9c3d25d8654",
+      "name": "Metadata - default",
+      "request": {
+        "urlPathTemplate": "/.well-known/oauth-authorization-server/oauth/partner",
+        "method": "GET"
+      },
+      "response": {
+        "status": 200,
+        "body": "{\n  \"issuer\": \"issuer\",\n  \"token_endpoint\": \"token_endpoint\",\n  \"grant_types_supported\": [\n    \"client_credentials\"\n  ],\n  \"token_endpoint_auth_methods_supported\": [\n    \"client_secret_basic\"\n  ],\n  \"scopes_supported\": [\n    \"scopes_supported\"\n  ]\n}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "uuid": "e14752f7-81a8-4fc1-a3c0-e9c3d25d8654",
+      "persistent": true,
+      "priority": 3,
+      "metadata": {
+        "mocklab": {
+          "created": {
+            "at": "2020-01-01T00:00:00.000Z",
+            "via": "SYSTEM"
+          }
+        }
+      },
+      "postServeActions": []
+    },
+    {
+      "id": "1030c146-2fa1-4b47-a288-a205173a6341",
+      "name": "Exchange a client credential for an access token - default",
+      "request": {
+        "urlPathTemplate": "/oauth/partner/token",
+        "method": "POST",
+        "headers": {
+          "Authorization": {
+            "equalTo": "Basic dGVzdC11c2VybmFtZTp0ZXN0LXBhc3N3b3Jk"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\n  \"access_token\": \"access_token\",\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 1,\n  \"scope\": \"scope\"\n}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "uuid": "1030c146-2fa1-4b47-a288-a205173a6341",
+      "persistent": true,
+      "priority": 3,
+      "metadata": {
+        "mocklab": {
+          "created": {
+            "at": "2020-01-01T00:00:00.000Z",
+            "via": "SYSTEM"
+          }
+        }
+      }
+    },
+    {
+      "id": "ef0cac7a-6edc-49ad-a189-7c1ef565a240",
+      "name": "Create Meeting - default",
+      "request": {
+        "urlPathTemplate": "/public/v1/meetings",
+        "method": "POST",
+        "headers": {
+          "Authorization": {
+            "equalTo": "Basic dGVzdC11c2VybmFtZTp0ZXN0LXBhc3N3b3Jk"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\n  \"id\": \"id\",\n  \"external_id\": \"external_id\",\n  \"status\": \"awaiting_upload\",\n  \"language\": \"language\",\n  \"locked_context\": {\n    \"key\": \"value\"\n  },\n  \"created_at\": \"2024-01-15T09:30:00Z\",\n  \"updated_at\": \"2024-01-15T09:30:00Z\",\n  \"recordings\": [\n    {\n      \"id\": \"id\",\n      \"meeting_id\": \"meeting_id\",\n      \"status\": \"awaiting_upload\",\n      \"content_type\": \"content_type\",\n      \"size_bytes\": 1,\n      \"uploaded_at\": \"2024-01-15T09:30:00Z\",\n      \"created_at\": \"2024-01-15T09:30:00Z\",\n      \"updated_at\": \"2024-01-15T09:30:00Z\"\n    }\n  ],\n  \"outputs\": [\n    {\n      \"id\": \"id\",\n      \"meeting_id\": \"meeting_id\",\n      \"profile_key\": \"meeting_summary\",\n      \"profile_version\": 1,\n      \"schema_version\": \"markdown.v1\",\n      \"status\": \"pending\",\n      \"failure_code\": \"upload_unreadable\",\n      \"created_at\": \"2024-01-15T09:30:00Z\",\n      \"updated_at\": \"2024-01-15T09:30:00Z\",\n      \"completed_at\": \"2024-01-15T09:30:00Z\"\n    }\n  ]\n}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "uuid": "ef0cac7a-6edc-49ad-a189-7c1ef565a240",
+      "persistent": true,
+      "priority": 3,
+      "metadata": {
+        "mocklab": {
+          "created": {
+            "at": "2020-01-01T00:00:00.000Z",
+            "via": "SYSTEM"
+          }
+        }
+      }
+    },
+    {
+      "id": "fe13c134-b9be-43e3-ab6a-80efb04900e9",
+      "name": "Get Meeting - default",
+      "request": {
+        "urlPathTemplate": "/public/v1/meetings/{meeting_id}",
+        "method": "GET",
+        "headers": {
+          "Authorization": {
+            "equalTo": "Basic dGVzdC11c2VybmFtZTp0ZXN0LXBhc3N3b3Jk"
+          }
+        },
+        "pathParameters": {
+          "meeting_id": {
+            "equalTo": "meeting_id"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\n  \"id\": \"id\",\n  \"external_id\": \"external_id\",\n  \"status\": \"awaiting_upload\",\n  \"language\": \"language\",\n  \"locked_context\": {\n    \"key\": \"value\"\n  },\n  \"created_at\": \"2024-01-15T09:30:00Z\",\n  \"updated_at\": \"2024-01-15T09:30:00Z\",\n  \"recordings\": [\n    {\n      \"id\": \"id\",\n      \"meeting_id\": \"meeting_id\",\n      \"status\": \"awaiting_upload\",\n      \"content_type\": \"content_type\",\n      \"size_bytes\": 1,\n      \"uploaded_at\": \"2024-01-15T09:30:00Z\",\n      \"created_at\": \"2024-01-15T09:30:00Z\",\n      \"updated_at\": \"2024-01-15T09:30:00Z\"\n    }\n  ],\n  \"outputs\": [\n    {\n      \"id\": \"id\",\n      \"meeting_id\": \"meeting_id\",\n      \"profile_key\": \"meeting_summary\",\n      \"profile_version\": 1,\n      \"schema_version\": \"markdown.v1\",\n      \"status\": \"pending\",\n      \"failure_code\": \"upload_unreadable\",\n      \"created_at\": \"2024-01-15T09:30:00Z\",\n      \"updated_at\": \"2024-01-15T09:30:00Z\",\n      \"completed_at\": \"2024-01-15T09:30:00Z\"\n    }\n  ]\n}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "uuid": "fe13c134-b9be-43e3-ab6a-80efb04900e9",
+      "persistent": true,
+      "priority": 3,
+      "metadata": {
+        "mocklab": {
+          "created": {
+            "at": "2020-01-01T00:00:00.000Z",
+            "via": "SYSTEM"
+          }
+        }
+      }
+    },
+    {
+      "id": "2068d5c2-5100-4608-b2dc-3a2133b49174",
+      "name": "Prepare Recording Upload - default",
+      "request": {
+        "urlPathTemplate": "/public/v1/meetings/{meeting_id}/recordings",
+        "method": "POST",
+        "headers": {
+          "Authorization": {
+            "equalTo": "Basic dGVzdC11c2VybmFtZTp0ZXN0LXBhc3N3b3Jk"
+          }
+        },
+        "pathParameters": {
+          "meeting_id": {
+            "equalTo": "meeting_id"
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": "{\n  \"id\": \"id\",\n  \"meeting_id\": \"meeting_id\",\n  \"status\": \"awaiting_upload\",\n  \"content_type\": \"content_type\",\n  \"size_bytes\": 1,\n  \"uploaded_at\": \"2024-01-15T09:30:00Z\",\n  \"created_at\": \"2024-01-15T09:30:00Z\",\n  \"updated_at\": \"2024-01-15T09:30:00Z\",\n  \"upload\": {\n    \"method\": \"method\",\n    \"url\": \"url\",\n    \"headers\": {\n      \"key\": \"value\"\n    },\n    \"expires_at\": \"2024-01-15T09:30:00Z\"\n  }\n}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "uuid": "2068d5c2-5100-4608-b2dc-3a2133b49174",
+      "persistent": true,
+      "priority": 3,
+      "metadata": {
+        "mocklab": {
+          "created": {
+            "at": "2020-01-01T00:00:00.000Z",
+            "via": "SYSTEM"
+          }
+        }
+      }
+    },
+    {
+      "id": "0e18819e-3ed7-46c2-bccf-31680f329d4a",
+      "name": "Complete Recording Upload - default",
+      "request": {
+        "urlPathTemplate": "/public/v1/recordings/{recording_id}/complete",
+        "method": "POST",
+        "headers": {
+          "Authorization": {
+            "equalTo": "Basic dGVzdC11c2VybmFtZTp0ZXN0LXBhc3N3b3Jk"
+          }
+        },
+        "pathParameters": {
+          "recording_id": {
+            "equalTo": "recording_id"
+          }
+        }
+      },
+      "response": {
+        "status": 202,
+        "body": "{\n  \"id\": \"id\",\n  \"meeting_id\": \"meeting_id\",\n  \"command\": \"command\",\n  \"status\": \"queued\",\n  \"phase\": \"upload\",\n  \"failure_code\": \"upload_unreadable\",\n  \"retryable\": true,\n  \"created_at\": \"2024-01-15T09:30:00Z\",\n  \"updated_at\": \"2024-01-15T09:30:00Z\",\n  \"completed_at\": \"2024-01-15T09:30:00Z\"\n}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "uuid": "0e18819e-3ed7-46c2-bccf-31680f329d4a",
+      "persistent": true,
+      "priority": 3,
+      "metadata": {
+        "mocklab": {
+          "created": {
+            "at": "2020-01-01T00:00:00.000Z",
+            "via": "SYSTEM"
+          }
+        }
+      }
+    },
+    {
+      "id": "24217b28-37e7-4533-995f-11151d44ae52",
+      "name": "List Meeting Outputs - default",
+      "request": {
+        "urlPathTemplate": "/public/v1/meetings/{meeting_id}/outputs",
+        "method": "GET",
+        "headers": {
+          "Authorization": {
+            "equalTo": "Basic dGVzdC11c2VybmFtZTp0ZXN0LXBhc3N3b3Jk"
+          }
+        },
+        "pathParameters": {
+          "meeting_id": {
+            "equalTo": "meeting_id"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "[\n  {\n    \"id\": \"id\",\n    \"meeting_id\": \"meeting_id\",\n    \"profile_key\": \"meeting_summary\",\n    \"profile_version\": 1,\n    \"schema_version\": \"markdown.v1\",\n    \"status\": \"pending\",\n    \"failure_code\": \"upload_unreadable\",\n    \"created_at\": \"2024-01-15T09:30:00Z\",\n    \"updated_at\": \"2024-01-15T09:30:00Z\",\n    \"completed_at\": \"2024-01-15T09:30:00Z\"\n  }\n]",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "uuid": "24217b28-37e7-4533-995f-11151d44ae52",
+      "persistent": true,
+      "priority": 3,
+      "metadata": {
+        "mocklab": {
+          "created": {
+            "at": "2020-01-01T00:00:00.000Z",
+            "via": "SYSTEM"
+          }
+        }
+      }
+    },
+    {
+      "id": "1ea0960e-d835-4771-92ac-2ec192afaa4c",
+      "name": "Get Meeting Output - default",
+      "request": {
+        "urlPathTemplate": "/public/v1/outputs/{output_id}",
+        "method": "GET",
+        "headers": {
+          "Authorization": {
+            "equalTo": "Basic dGVzdC11c2VybmFtZTp0ZXN0LXBhc3N3b3Jk"
+          }
+        },
+        "pathParameters": {
+          "output_id": {
+            "equalTo": "output_id"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\n  \"id\": \"id\",\n  \"meeting_id\": \"meeting_id\",\n  \"profile_key\": \"meeting_summary\",\n  \"profile_version\": 1,\n  \"schema_version\": \"markdown.v1\",\n  \"status\": \"pending\",\n  \"failure_code\": \"upload_unreadable\",\n  \"created_at\": \"2024-01-15T09:30:00Z\",\n  \"updated_at\": \"2024-01-15T09:30:00Z\",\n  \"completed_at\": \"2024-01-15T09:30:00Z\",\n  \"content\": \"content\",\n  \"structured_data\": {\n    \"key\": \"value\"\n  }\n}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "uuid": "1ea0960e-d835-4771-92ac-2ec192afaa4c",
+      "persistent": true,
+      "priority": 3,
+      "metadata": {
+        "mocklab": {
+          "created": {
+            "at": "2020-01-01T00:00:00.000Z",
+            "via": "SYSTEM"
+          }
+        }
+      }
+    },
+    {
+      "id": "92a86783-feac-4fce-bc43-6d35c321b5ca",
+      "name": "Get Operation - default",
+      "request": {
+        "urlPathTemplate": "/public/v1/operations/{operation_id}",
+        "method": "GET",
+        "headers": {
+          "Authorization": {
+            "equalTo": "Basic dGVzdC11c2VybmFtZTp0ZXN0LXBhc3N3b3Jk"
+          }
+        },
+        "pathParameters": {
+          "operation_id": {
+            "equalTo": "operation_id"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "{\n  \"id\": \"id\",\n  \"meeting_id\": \"meeting_id\",\n  \"command\": \"command\",\n  \"status\": \"queued\",\n  \"phase\": \"upload\",\n  \"failure_code\": \"upload_unreadable\",\n  \"retryable\": true,\n  \"created_at\": \"2024-01-15T09:30:00Z\",\n  \"updated_at\": \"2024-01-15T09:30:00Z\",\n  \"completed_at\": \"2024-01-15T09:30:00Z\"\n}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "uuid": "92a86783-feac-4fce-bc43-6d35c321b5ca",
+      "persistent": true,
+      "priority": 3,
+      "metadata": {
+        "mocklab": {
+          "created": {
+            "at": "2020-01-01T00:00:00.000Z",
+            "via": "SYSTEM"
+          }
+        }
+      }
+    }
+  ],
+  "meta": {
+    "total": 9
+  }
+}

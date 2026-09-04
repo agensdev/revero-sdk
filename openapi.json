@@ -1,0 +1,1984 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Revero Public API",
+    "description": "Create meetings, upload audio directly, follow authoritative operations and retrieve generated outputs. See the complete quickstart at https://docs.revero.no/welcome.\n\nThis is not a browser-callable surface: service credentials, bearer tokens and authenticated calls belong only in your backend. Browser code receives only the short-lived presigned upload request.\n\nReplay a lost completion response with the SAME `Idempotency-Key`. After a terminal retryable failure, send a NEW `Idempotency-Key`; the old key still names the failed operation.\n\nA new key while work is still outstanding is a `409`, as is one after `retryable: false`. `transcription_empty` and `upload_unreadable` need new audio and a new meeting. `processing_not_entitled`, `output_profile_unavailable`, `organisation_key_unavailable` and `jurisdiction_unavailable` require an administrator or operator. Branch on `failure_code`.\n\nAcquire a token from `/oauth/partner/token`. Every `/public/v1` error uses `{\"code\", \"message\"}`; branch on the stable `code`, never the message. OAuth token errors use the RFC 6749 error shape.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current environment"
+    }
+  ],
+  "paths": {
+    "/.well-known/oauth-authorization-server/oauth/partner": {
+      "get": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Metadata",
+        "operationId": "get_oauth_authorization_server_metadata",
+        "responses": {
+          "200": {
+            "description": "OAuth metadata for the Revero partner issuer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientCredentialsMetadataResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/partner/token": {
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Exchange a client credential for an access token",
+        "description": "Authenticate with HTTP Basic using the integration client ID and secret. The form must request the exact advertised resource and an explicit space-separated scope set. Client secrets must only be used by a backend.",
+        "operationId": "exchange_client_credentials",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "grant_type": {
+                    "type": "string",
+                    "const": "client_credentials"
+                  },
+                  "resource": {
+                    "type": "string",
+                    "format": "uri",
+                    "example": "https://referat-api.flyt.test/public/v1"
+                  },
+                  "scope": {
+                    "type": "string",
+                    "description": "Space-separated OAuth scopes",
+                    "example": "meetings:read meetings:write recordings:write"
+                  }
+                },
+                "type": "object",
+                "required": [
+                  "grant_type",
+                  "resource",
+                  "scope"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A short-lived bearer token for the requested scopes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientCredentialsTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The grant, resource, or scope is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Client authentication failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The authorization server cannot issue a token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ReveroClientCredentials": []
+          }
+        ]
+      }
+    },
+    "/public/v1/meetings": {
+      "post": {
+        "tags": [
+          "public-api"
+        ],
+        "summary": "Create Meeting",
+        "description": "Create a meeting, idempotent within the OAuth client by external_id.",
+        "operationId": "create_public_meeting",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeetingCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "A newly created meeting and its declared outputs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_token` \u2014 the bearer token is missing, expired, revoked, or belongs to a client whose organisation is suspended or no longer entitled to the Public API. Obtain a new token; if that also fails, an administrator must act.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, or `output_profile_unavailable` \u2014 a requested output profile's template is not available to this organisation. The key is valid; the grant is missing, and only an administrator can add one. Retrying will not change the answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay \u2014 a meeting with this `external_id` already existed and the request matches it. The same resource is returned; nothing was created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingRead"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`external_id_conflict` \u2014 this `external_id` already identifies a different request (another language, or another set of output profiles). Use a new `external_id`; the first request's `locked_context` is never restated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`processing_unavailable` \u2014 this organisation cannot be processed yet. Not your fault and not a retry you can win; an administrator must enable it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ReveroPublicOAuth": [
+              "meetings:write"
+            ]
+          }
+        ]
+      }
+    },
+    "/public/v1/meetings/{meeting_id}": {
+      "get": {
+        "tags": [
+          "public-api"
+        ],
+        "summary": "Get Meeting",
+        "description": "Read one meeting owned by the calling OAuth client.",
+        "operationId": "get_public_meeting",
+        "security": [
+          {
+            "ReveroPublicOAuth": [
+              "meetings:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "meeting_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Meeting Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The meeting, recording metadata and declared outputs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_token` \u2014 the bearer token is missing, expired, revoked, or belongs to a client whose organisation is suspended or no longer entitled to the Public API. Obtain a new token; if that also fails, an administrator must act.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope` \u2014 the token is valid but was not issued with the scope this route requires. Request the scope at token exchange.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`meeting_not_found` \u2014 no meeting with this id belongs to the calling integration client. An id belonging to another client or another organisation is a 404, not a 403.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`processing_unavailable` \u2014 processing or stored context is temporarily unavailable. Contact your Revero administrator.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/v1/meetings/{meeting_id}/recordings": {
+      "post": {
+        "tags": [
+          "public-api"
+        ],
+        "summary": "Prepare Recording Upload",
+        "description": "Create a recording and return a one-hour direct-upload request.",
+        "operationId": "prepare_public_recording_upload",
+        "security": [
+          {
+            "ReveroPublicOAuth": [
+              "recordings:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "meeting_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Meeting Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "A recording resource and its short-lived direct-upload instruction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingPrepared"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_token` \u2014 the bearer token is missing, expired, revoked, or belongs to a client whose organisation is suspended or no longer entitled to the Public API. Obtain a new token; if that also fails, an administrator must act.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope` \u2014 the token is valid but was not issued with the scope this route requires. Request the scope at token exchange.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`meeting_not_found` \u2014 see `GET /meetings/{meeting_id}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`meeting_not_accepting_uploads` \u2014 this meeting has already moved past the upload stage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_audio_type` \u2014 the declared `content_type` is not an audio type Revero accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/v1/recordings/{recording_id}/complete": {
+      "post": {
+        "tags": [
+          "public-api"
+        ],
+        "summary": "Complete Recording Upload",
+        "description": "Verify the uploaded object and accept transcription asynchronously.",
+        "operationId": "complete_public_recording_upload",
+        "security": [
+          {
+            "ReveroPublicOAuth": [
+              "recordings:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Recording Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 255,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The authoritative operation accepted for asynchronous processing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_token` \u2014 the bearer token is missing, expired, revoked, or belongs to a client whose organisation is suspended or no longer entitled to the Public API. Obtain a new token; if that also fails, an administrator must act.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope` \u2014 the token is valid but was not issued with the scope this route requires. Request the scope at token exchange.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`recording_not_found` \u2014 no recording with this id belongs to the calling integration client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "One of: `recording_already_completed` (this recording was completed under a different Idempotency-Key), `meeting_already_processing` (a DIFFERENT recording for this meeting is already being processed \u2014 one meeting carries one recording, so poll that operation or create a new meeting), `upload_expired` (the presigned grant lapsed \u2014 prepare a new recording), `upload_not_found` (no object at the expected location: the browser upload did not finish), `empty_upload` (the object is zero bytes), or `uploaded_content_type_mismatch` (the stored type differs from the one declared).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`upload_too_large` \u2014 the object exceeds the maximum upload size.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`dispatch_failed` \u2014 the command was accepted and stored, but processing could not be started. Retry with the SAME `Idempotency-Key`; the replay re-dispatches it rather than creating a second operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`processing_unavailable` \u2014 see `POST /meetings`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/v1/meetings/{meeting_id}/outputs": {
+      "get": {
+        "tags": [
+          "public-api"
+        ],
+        "summary": "List Meeting Outputs",
+        "description": "List the documents this meeting declared, and where each one stands.",
+        "operationId": "list_public_meeting_outputs",
+        "security": [
+          {
+            "ReveroPublicOAuth": [
+              "meetings:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "meeting_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Meeting Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Output metadata declared for this meeting.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OutputRead"
+                  },
+                  "title": "Response List Public Meeting Outputs"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_token` \u2014 the bearer token is missing, expired, revoked, or belongs to a client whose organisation is suspended or no longer entitled to the Public API. Obtain a new token; if that also fails, an administrator must act.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope` \u2014 the token is valid but was not issued with the scope this route requires. Request the scope at token exchange.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`meeting_not_found` \u2014 see `GET /meetings/{meeting_id}`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/v1/outputs/{output_id}": {
+      "get": {
+        "tags": [
+          "public-api"
+        ],
+        "summary": "Get Meeting Output",
+        "description": "Read one generated output owned by the calling integration.",
+        "operationId": "get_public_meeting_output",
+        "security": [
+          {
+            "ReveroPublicOAuth": [
+              "meetings:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "output_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Output Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The output, including content when it is completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputContentRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_token` \u2014 the bearer token is missing, expired, revoked, or belongs to a client whose organisation is suspended or no longer entitled to the Public API. Obtain a new token; if that also fails, an administrator must act.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope` \u2014 the token is valid but was not issued with the scope this route requires. Request the scope at token exchange.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`output_not_found` \u2014 no output with this id belongs to the calling integration client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`processing_unavailable` \u2014 this output is temporarily unavailable. Contact your Revero administrator.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/v1/operations/{operation_id}": {
+      "get": {
+        "tags": [
+          "public-api"
+        ],
+        "summary": "Get Operation",
+        "description": "Poll the authoritative coarse state of one accepted command.",
+        "operationId": "get_public_operation",
+        "security": [
+          {
+            "ReveroPublicOAuth": [
+              "meetings:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Operation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The authoritative current state of the operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_token` \u2014 the bearer token is missing, expired, revoked, or belongs to a client whose organisation is suspended or no longer entitled to the Public API. Obtain a new token; if that also fails, an administrator must act.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope` \u2014 the token is valid but was not issued with the scope this route requires. Request the scope at token exchange.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`operation_not_found` \u2014 no operation with this id belongs to the calling integration client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "terminal-event": {
+      "post": {
+        "summary": "Receive a terminal operation or output event",
+        "description": "Revero delivers terminal events at least once and without ordering guarantees. Verify `Flyt-Signature` against the exact request bytes before decoding this envelope, deduplicate on the event ID, return a 2xx response quickly, and reconcile through the authenticated links. Revero retries timeouts, 429 and 5xx responses; it stops on other 4xx responses and does not follow redirects.",
+        "operationId": "receive_public_terminal_event",
+        "parameters": [
+          {
+            "description": "One timestamp and one or more HMAC-SHA256 signatures: `t=<unix>,v1=<hex>`. Accept any matching `v1` during rotation.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flyt-Signature",
+              "description": "One timestamp and one or more HMAC-SHA256 signatures: `t=<unix>,v1=<hex>`. Accept any matching `v1` during rotation."
+            },
+            "name": "Flyt-Signature",
+            "in": "header"
+          },
+          {
+            "description": "The same stable event ID as the envelope `id` field.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Flyt-Event-Id",
+              "description": "The same stable event ID as the envelope `id` field."
+            },
+            "name": "Flyt-Event-Id",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicWebhookEnvelope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The receiver accepted the event for reconciliation."
+          },
+          "422": {
+            "description": "The receiver rejected the event body. Revero treats this as a permanent delivery failure and does not retry it."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ClientCredentialsMetadataResponse": {
+        "properties": {
+          "issuer": {
+            "type": "string",
+            "title": "Issuer",
+            "description": "Issuer that creates and verifies service tokens."
+          },
+          "token_endpoint": {
+            "type": "string",
+            "title": "Token Endpoint",
+            "description": "Endpoint for Client Credentials exchange."
+          },
+          "grant_types_supported": {
+            "items": {
+              "type": "string",
+              "const": "client_credentials"
+            },
+            "type": "array",
+            "title": "Grant Types Supported",
+            "description": "OAuth grants supported by this issuer."
+          },
+          "token_endpoint_auth_methods_supported": {
+            "items": {
+              "type": "string",
+              "const": "client_secret_basic"
+            },
+            "type": "array",
+            "title": "Token Endpoint Auth Methods Supported",
+            "description": "Client authentication methods accepted by the token endpoint."
+          },
+          "scopes_supported": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scopes Supported",
+            "description": "OAuth scopes this issuer can grant."
+          }
+        },
+        "type": "object",
+        "required": [
+          "issuer",
+          "token_endpoint",
+          "grant_types_supported",
+          "token_endpoint_auth_methods_supported",
+          "scopes_supported"
+        ],
+        "title": "ClientCredentialsMetadataResponse",
+        "description": "OAuth authorization-server metadata for this service issuer."
+      },
+      "ClientCredentialsTokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token",
+            "description": "Opaque bearer token. Keep it on the integrating backend."
+          },
+          "token_type": {
+            "type": "string",
+            "const": "Bearer",
+            "title": "Token Type",
+            "description": "Authorization scheme used when calling the Public API."
+          },
+          "expires_in": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Expires In",
+            "description": "Lifetime of the access token in seconds."
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "description": "Granted OAuth scopes, separated by spaces."
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "scope"
+        ],
+        "title": "ClientCredentialsTokenResponse",
+        "description": "Successful OAuth Client Credentials response."
+      },
+      "MeetingCreate": {
+        "properties": {
+          "external_id": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "External Id",
+            "description": "Your own identifier for this meeting. Creation is idempotent on it: re-sending an identical request returns the same meeting with 200 instead of 201. Re-using it for a DIFFERENT request (other documents, another language) is a 409 `external_id_conflict`.",
+            "examples": [
+              "gm-2026-04-17"
+            ]
+          },
+          "language": {
+            "type": "string",
+            "maxLength": 10,
+            "minLength": 2,
+            "title": "Language",
+            "description": "Spoken language, for transcription and generation.",
+            "default": "no",
+            "examples": [
+              "no",
+              "en"
+            ]
+          },
+          "output_profiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "title": "Output Profiles",
+            "description": "Which documents this meeting should produce, by stable profile key. Each becomes one output resource you fetch separately. The profile VERSION is pinned now: publishing a new version later never changes what this meeting produces. Defaults to the transcript alone.",
+            "examples": [
+              [
+                "transcript",
+                "meeting_summary"
+              ]
+            ]
+          },
+          "locked_context": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locked Context",
+            "description": "Your authoritative facts about this meeting \u2014 a case number, participants, a date. Stored encrypted, returned as its own field, and never rewritten by generation: your system stays authoritative for legal and business facts. Captured ONCE, on the request that creates the meeting, so a later call with the same external_id cannot restate it under documents already generated from it. At most 16384 bytes serialized.",
+            "examples": [
+              {
+                "attendees": [
+                  "Ola Nordmann"
+                ],
+                "case_number": "2026-114"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "external_id"
+        ],
+        "title": "MeetingCreate",
+        "description": "A meeting to transcribe, and the documents it should produce."
+      },
+      "MeetingRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Revero's identifier for this meeting."
+          },
+          "external_id": {
+            "type": "string",
+            "title": "External Id",
+            "description": "Your identifier, exactly as you sent it."
+          },
+          "status": {
+            "$ref": "#/components/schemas/PublicMeetingStatus",
+            "description": "Coarse state of the meeting as a whole."
+          },
+          "language": {
+            "type": "string",
+            "title": "Language",
+            "description": "The language this meeting is processed in."
+          },
+          "locked_context": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locked Context",
+            "description": "Exactly the facts you supplied at creation. Returned beside the generated documents rather than inside them, and never derived from one \u2014 a model cannot promote its own guess into this field."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the meeting was created."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When this resource last changed."
+          },
+          "recordings": {
+            "items": {
+              "$ref": "#/components/schemas/RecordingRead"
+            },
+            "type": "array",
+            "title": "Recordings",
+            "description": "Audio uploaded for this meeting, as metadata."
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/OutputRead"
+            },
+            "type": "array",
+            "title": "Outputs",
+            "description": "The documents this meeting declared, as metadata. Fetch each one's content from its own resource."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "external_id",
+          "status",
+          "language",
+          "created_at",
+          "updated_at",
+          "recordings",
+          "outputs"
+        ],
+        "title": "MeetingRead",
+        "description": "The aggregate: one meeting, its recordings and its declared documents.\n\nSafe to poll within the published rate limit \u2014 this read is metadata only\nand is not audited per call."
+      },
+      "OAuthErrorResponse": {
+        "properties": {
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "description": "Machine-readable OAuth error code."
+          },
+          "error_description": {
+            "type": "string",
+            "title": "Error Description",
+            "description": "Safe description of why the token request failed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "error",
+          "error_description"
+        ],
+        "title": "OAuthErrorResponse",
+        "description": "RFC 6749 error returned by the token endpoint."
+      },
+      "OperationRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Revero's identifier for this operation."
+          },
+          "meeting_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Meeting Id",
+            "description": "The meeting the command acted on."
+          },
+          "command": {
+            "type": "string",
+            "title": "Command",
+            "description": "Which command this receipt is for."
+          },
+          "status": {
+            "$ref": "#/components/schemas/PublicOperationStatus",
+            "description": "One of five coarse states. `queued` and `processing` mean work is outstanding; the other three are terminal and will not change."
+          },
+          "phase": {
+            "$ref": "#/components/schemas/PublicOperationPhase",
+            "description": "Which stage the work has reached. Informational, for showing progress \u2014 do not branch on it; branch on `status`."
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicFailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the operation failed, or null. A closed set of stable values \u2014 branch on this rather than on the HTTP status or the message."
+          },
+          "retryable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retryable",
+            "description": "Whether re-sending could succeed at all. Null until the operation fails. False means a retry would fail identically, but the reason differs by `failure_code`, and only some need an administrator, so branch on the code rather than on this alone."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the command was accepted."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When this resource last changed."
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At",
+            "description": "When it reached a terminal state."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "meeting_id",
+          "command",
+          "status",
+          "phase",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "OperationRead",
+        "description": "The durable receipt for one accepted command \u2014 poll this.\n\nAfter a dropped connection, a closed browser or a missed notification,\nreading this resource is enough to learn what happened."
+      },
+      "OutputContentRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Fetch this document's content from `/outputs/{id}`."
+          },
+          "meeting_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Meeting Id",
+            "description": "The meeting this document belongs to."
+          },
+          "profile_key": {
+            "type": "string",
+            "title": "Profile Key",
+            "description": "Which document this is, as named when the meeting was created.",
+            "examples": [
+              "meeting_summary"
+            ]
+          },
+          "profile_version": {
+            "type": "integer",
+            "title": "Profile Version",
+            "description": "Pinned when the meeting was created. A newer version published since then does not apply to this document."
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "description": "Version of the public payload shape used by `content` and `structured_data` for this output.",
+            "examples": [
+              "markdown.v1"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/PublicOutputStatus",
+            "description": "Where this document stands. Content is readable at `completed`."
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicFailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this document failed, or null. Branch on this rather than on prose; see the operation's `retryable` for whether re-sending could help."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the document was declared."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When this resource last changed."
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At",
+            "description": "When it became readable. Null until then."
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content",
+            "description": "The document as markdown. Null unless `status` is `completed`."
+          },
+          "structured_data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structured Data",
+            "description": "The same answer as machine-readable fields, when this profile declares them \u2014 `schema_version` says which shape. Null for profiles that produce prose only, and null unless `status` is `completed`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "meeting_id",
+          "profile_key",
+          "profile_version",
+          "schema_version",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "OutputContentRead",
+        "description": "One output plus content when generation has completed.\n\nMeeting polls return output metadata only. Fetch content one output at a\ntime after its status becomes ``completed``."
+      },
+      "OutputRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Fetch this document's content from `/outputs/{id}`."
+          },
+          "meeting_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Meeting Id",
+            "description": "The meeting this document belongs to."
+          },
+          "profile_key": {
+            "type": "string",
+            "title": "Profile Key",
+            "description": "Which document this is, as named when the meeting was created.",
+            "examples": [
+              "meeting_summary"
+            ]
+          },
+          "profile_version": {
+            "type": "integer",
+            "title": "Profile Version",
+            "description": "Pinned when the meeting was created. A newer version published since then does not apply to this document."
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "description": "Version of the public payload shape used by `content` and `structured_data` for this output.",
+            "examples": [
+              "markdown.v1"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/PublicOutputStatus",
+            "description": "Where this document stands. Content is readable at `completed`."
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicFailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this document failed, or null. Branch on this rather than on prose; see the operation's `retryable` for whether re-sending could help."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the document was declared."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When this resource last changed."
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At",
+            "description": "When it became readable. Null until then."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "meeting_id",
+          "profile_key",
+          "profile_version",
+          "schema_version",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "OutputRead",
+        "description": "One declared document, as metadata. Fetch its content separately."
+      },
+      "PresignedUpload": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "description": "Use this HTTP method exactly as returned. Do not hard-code or reinterpret it.",
+            "default": "PUT"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "Upload the audio bytes here, directly to object storage."
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Headers",
+            "description": "Send these verbatim on the upload. `Content-Type` must match the type you declared, or completion refuses the object."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At",
+            "description": "After this the grant is dead \u2014 prepare a new recording rather than retrying the upload."
+          }
+        },
+        "type": "object",
+        "required": [
+          "url",
+          "headers",
+          "expires_at"
+        ],
+        "title": "PresignedUpload",
+        "description": "A single-object upload grant. The only thing here safe to give a browser.\n\nIt carries no Revero credential and authorises writing one object, once,\nuntil it expires. Never send your client secret or bearer token to browser\ncode."
+      },
+      "PublicApiError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Stable, machine-readable reason for the refusal"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable explanation. Never parse this."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "PublicApiError",
+        "description": "One refusal, as a stable code plus prose a human reads.\n\nEvery `/public/v1` error uses this flat shape. The code is the stable\nprotocol; the message is explanatory prose and may be reworded."
+      },
+      "PublicFailureCode": {
+        "type": "string",
+        "enum": [
+          "upload_unreadable",
+          "transcription_failed",
+          "transcription_empty",
+          "generation_failed",
+          "processing_not_entitled",
+          "output_profile_unavailable",
+          "organisation_key_unavailable",
+          "jurisdiction_unavailable",
+          "internal_error"
+        ],
+        "title": "PublicFailureCode",
+        "description": "Stable, machine-readable reasons a public operation ended badly."
+      },
+      "PublicMeetingStatus": {
+        "type": "string",
+        "enum": [
+          "awaiting_upload",
+          "processing",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "PublicMeetingStatus",
+        "description": "Meeting lifecycle. Completed, failed and cancelled are terminal."
+      },
+      "PublicOperationPhase": {
+        "type": "string",
+        "enum": [
+          "upload",
+          "transcription",
+          "generation",
+          "delivery"
+        ],
+        "title": "PublicOperationPhase",
+        "description": "Informational work stage. Never use it to decide whether work is terminal."
+      },
+      "PublicOperationStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "processing",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "PublicOperationStatus",
+        "description": "Authoritative command state; branch on this rather than operation phase."
+      },
+      "PublicOutputStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "generating",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "PublicOutputStatus",
+        "description": "Generated-output lifecycle. Completed, failed and cancelled are terminal."
+      },
+      "PublicRecordingStatus": {
+        "type": "string",
+        "enum": [
+          "awaiting_upload",
+          "uploaded",
+          "processing",
+          "transcribed",
+          "failed",
+          "cancelled",
+          "purged",
+          "unrecoverable"
+        ],
+        "title": "PublicRecordingStatus",
+        "description": "Recording ingest lifecycle; all states after transcribed are terminal."
+      },
+      "PublicWebhookData": {
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Meeting Id",
+            "description": "Meeting to reconcile with the Public API."
+          },
+          "external_id": {
+            "type": "string",
+            "title": "External Id",
+            "description": "Your identifier for the meeting."
+          },
+          "meeting_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicMeetingStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Terminal meeting state when the event describes an operation."
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Operation Id",
+            "description": "Operation associated with the event."
+          },
+          "operation_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicOperationStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Terminal operation state for an operation event."
+          },
+          "operation_phase": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicOperationPhase"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Final informational phase for an operation event."
+          },
+          "output_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Id",
+            "description": "Output associated with an output event."
+          },
+          "output_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicOutputStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Terminal output state for an output event."
+          },
+          "profile_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Key",
+            "description": "Stable output profile key for an output event."
+          },
+          "profile_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Version",
+            "description": "Pinned output profile version for an output event."
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version",
+            "description": "Public content schema version for an output event."
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicFailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stable failure reason for a failed operation or output."
+          },
+          "retryable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retryable",
+            "description": "Whether a failed operation may succeed when retried."
+          }
+        },
+        "type": "object",
+        "required": [
+          "meeting_id",
+          "external_id",
+          "operation_id"
+        ],
+        "title": "PublicWebhookData",
+        "description": "Identifiers and terminal state carried by a public webhook event."
+      },
+      "PublicWebhookEnvelope": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "description": "Version of this webhook envelope contract.",
+            "examples": [
+              "2026-09-01"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Stable event ID. Deduplicate repeated delivery on this value."
+          },
+          "type": {
+            "$ref": "#/components/schemas/PublicWebhookEventType",
+            "description": "Terminal event type."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When Revero created the event."
+          },
+          "data": {
+            "$ref": "#/components/schemas/PublicWebhookData",
+            "description": "Identifiers and terminal state."
+          },
+          "links": {
+            "$ref": "#/components/schemas/PublicWebhookLinks",
+            "description": "Authenticated resources whose current state is authoritative."
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "id",
+          "type",
+          "created_at",
+          "data",
+          "links"
+        ],
+        "title": "PublicWebhookEnvelope",
+        "description": "Signed, at-least-once notification of a terminal public resource state."
+      },
+      "PublicWebhookEventType": {
+        "type": "string",
+        "enum": [
+          "operation.completed",
+          "operation.failed",
+          "output.completed",
+          "output.failed"
+        ],
+        "title": "PublicWebhookEventType",
+        "description": "Every event that may leave an organisation over this surface.\n\nThe product contract ADR-0072 asked for, stated as a closed set. Terminal\nonly: there is no \"started\", no \"progress\" and no percentage, because a\npartner reconciles from the authoritative GET and a notification only\naccelerates that (ADR-0072, \"Status and delivery\")."
+      },
+      "PublicWebhookLinks": {
+        "properties": {
+          "meeting": {
+            "type": "string",
+            "title": "Meeting",
+            "description": "Authoritative meeting resource URL."
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation",
+            "description": "Authoritative operation resource URL when applicable."
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output",
+            "description": "Authoritative output resource URL when applicable."
+          }
+        },
+        "type": "object",
+        "required": [
+          "meeting"
+        ],
+        "title": "PublicWebhookLinks",
+        "description": "Authenticated Public API resources used to reconcile an event."
+      },
+      "RecordingCreate": {
+        "properties": {
+          "content_type": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Content Type",
+            "description": "MIME type of the audio. The presigned request is issued for exactly this type, and completion refuses an object whose stored type differs \u2014 send the same value as the `Content-Type` header on your upload.",
+            "default": "audio/webm",
+            "examples": [
+              "audio/webm",
+              "audio/mp4"
+            ]
+          }
+        },
+        "type": "object",
+        "title": "RecordingCreate",
+        "description": "The audio you are about to upload."
+      },
+      "RecordingPrepared": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Revero's identifier for this recording."
+          },
+          "meeting_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Meeting Id",
+            "description": "The meeting this recording belongs to."
+          },
+          "status": {
+            "$ref": "#/components/schemas/PublicRecordingStatus",
+            "description": "Ingest state. Terminal values will not change again."
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type",
+            "description": "The MIME type declared when the upload was prepared."
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes",
+            "description": "Size of the uploaded object as Revero verified it. Null until the upload has been completed."
+          },
+          "uploaded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded At",
+            "description": "When Revero verified the object in storage \u2014 not when your browser finished sending it. Null until completion."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the upload was prepared."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When this resource last changed."
+          },
+          "upload": {
+            "$ref": "#/components/schemas/PresignedUpload",
+            "description": "This is the only part of the response safe to give browser code."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "meeting_id",
+          "status",
+          "content_type",
+          "created_at",
+          "updated_at",
+          "upload"
+        ],
+        "title": "RecordingPrepared",
+        "description": "A recording plus the one-time grant to upload its audio."
+      },
+      "RecordingRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Revero's identifier for this recording."
+          },
+          "meeting_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Meeting Id",
+            "description": "The meeting this recording belongs to."
+          },
+          "status": {
+            "$ref": "#/components/schemas/PublicRecordingStatus",
+            "description": "Ingest state. Terminal values will not change again."
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type",
+            "description": "The MIME type declared when the upload was prepared."
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes",
+            "description": "Size of the uploaded object as Revero verified it. Null until the upload has been completed."
+          },
+          "uploaded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded At",
+            "description": "When Revero verified the object in storage \u2014 not when your browser finished sending it. Null until completion."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the upload was prepared."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When this resource last changed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "meeting_id",
+          "status",
+          "content_type",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "RecordingRead",
+        "description": "One uploaded audio object and where its ingest stands."
+      }
+    },
+    "securitySchemes": {
+      "ReveroClientCredentials": {
+        "type": "http",
+        "description": "Authenticate the token exchange with the integration client ID and secret. Never expose the secret in browser code.",
+        "scheme": "basic"
+      },
+      "ReveroPublicOAuth": {
+        "type": "oauth2",
+        "description": "Revero-owned OAuth 2.0 Client Credentials. Obtain tokens only from a backend; never place the client secret in browser code.",
+        "flows": {
+          "clientCredentials": {
+            "scopes": {
+              "meetings:read": "Read meetings, outputs, and operation status",
+              "meetings:write": "Create meetings",
+              "recordings:write": "Prepare and complete recording uploads"
+            },
+            "tokenUrl": "/oauth/partner/token"
+          }
+        }
+      }
+    }
+  }
+}

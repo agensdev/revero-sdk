@@ -1,0 +1,63 @@
+---
+title: Record from a browser
+description: Use the ready-made React recorder or the same durable core with your own interface.
+slug: browser-recorder
+---
+
+`@revero/recorder` records microphone audio into durable local chunks and
+uploads it only after explicit confirmation. It never accepts a Revero OAuth
+client secret or service access token. Its adapter calls your backend for
+short-lived instructions.
+
+## Ready-made React component
+
+```tsx
+"use client"
+
+import { IndexedDbRecorderStore } from "@revero/recorder/indexeddb"
+import { ReveroRecorder } from "@revero/recorder/react"
+
+const store = new IndexedDbRecorderStore({ databaseName: `meeting-${meetingId}` })
+
+<ReveroRecorder
+  store={store}
+  adapter={{
+    prepareRecording: async ({ contentType, sessionId }) =>
+      fetch(`/api/meetings/${meetingId}/recordings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentType, sessionId }),
+      }).then((response) => response.json()),
+    completeRecording: async ({ recordingId, idempotencyKey }) =>
+      fetch(`/api/recordings/${recordingId}/complete`, {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+      }).then((response) => response.json()),
+  }}
+/>
+```
+
+The component exposes explicit start, stop, confirm, retry and discard actions.
+Chunks remain in IndexedDB until your backend acknowledges the idempotent
+completion command.
+
+## Headless interface
+
+Use `useReveroRecorder(options)` from `@revero/recorder/react` for a custom
+React interface, or `createRecorder(options)` from `@revero/recorder/core` when
+the UI is not React. Both interfaces use the same state machine and
+`RecorderStore` contract.
+
+## Support matrix
+
+| Environment | Supported contract |
+| --- | --- |
+| React | 18 and 19 |
+| Next.js SSR | Importing the package is safe; recording begins only in a client component |
+| Chromium | Current stable and previous stable |
+| Firefox | Current stable and previous stable |
+| Safari | Current stable and previous stable |
+
+The release gate builds a clean Next.js fixture, imports all four package
+entrypoints during SSR, and exercises the user-visible recorder actions in
+Chromium, Firefox and WebKit.
