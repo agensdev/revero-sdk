@@ -88,10 +88,7 @@ async fn complete_recording(
         .map_err(|_| StatusCode::BAD_GATEWAY)?;
     let settled = state
         .revero
-        .wait_for_operation(
-            &accepted.id,
-            WaitOptions::new(Duration::from_secs(10 * 60)),
-        )
+        .wait_for_operation(&accepted.id, WaitOptions::new(Duration::from_secs(10 * 60)))
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?;
     Ok(Json(settled))
@@ -102,23 +99,35 @@ async fn webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, StatusCode> {
-    let signature = headers
-        .get(webhooks::SIGNATURE_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .ok_or(StatusCode::UNAUTHORIZED)
+    };
+    let delivery = webhooks::WebhookHeaders {
+        id: header(webhooks::ID_HEADER)?,
+        timestamp: header(webhooks::TIMESTAMP_HEADER)?,
+        signature: header(webhooks::SIGNATURE_HEADER)?,
+    };
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .as_secs() as i64;
     let event: WebhookEnvelope = webhooks::verify_and_parse(
-        signature,
-        state.webhook_secret.as_bytes(),
+        delivery,
+        &state.webhook_secret,
         &body,
         now,
         webhooks::DEFAULT_TOLERANCE_SECONDS,
     )
     .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    if state.webhook_ids.lock().await.insert(event.id) {
+    if state
+        .webhook_ids
+        .lock()
+        .await
+        .insert(delivery.id.to_owned())
+    {
         let _authoritative = state
             .revero
             .get_meeting(&event.data.meeting_id)
@@ -151,7 +160,10 @@ async fn main() {
     let app = Router::new()
         .route("/meetings", post(create_meeting))
         .route("/meetings/{meeting_id}/recordings", post(prepare_recording))
-        .route("/recordings/{recording_id}/complete", post(complete_recording))
+        .route(
+            "/recordings/{recording_id}/complete",
+            post(complete_recording),
+        )
         .route("/webhooks/revero", post(webhook))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")

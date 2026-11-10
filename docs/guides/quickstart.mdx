@@ -9,9 +9,15 @@ documents in your storage. The OAuth client secret and service access token stay
 in your backend. Your browser receives only a short-lived upload instruction.
 
 <Note>
-  Examples use Rust because it is the first released server SDK. TypeScript and
-  Python will be added as tabs on this page, not as separate guides.
+  Examples use Rust because it is the first released server SDK. TypeScript and Python will be added
+  as tabs on this page, not as separate guides.
 </Note>
+
+<Warning>
+  Read [Model your meetings](/data-model) before you design your own tables. One meeting carries ONE
+  recording, so a gathering captured in several sittings is several Revero meetings. Getting that
+  backwards costs a migration.
+</Warning>
 
 ## Before you start
 
@@ -22,9 +28,9 @@ with these scopes:
 - `recordings:write` to prepare and complete recordings; and
 - `meetings:read` to read meetings, operations and outputs.
 
-Store both values as backend-only secrets. Choose the base URL for the Revero
-environment your organisation has been provisioned in; never guess one from a
-browser URL.
+Store both values as backend-only secrets. The SDK knows the production base
+URL, `https://api.revero.no`; pick `Environment::Staging` only when your
+organisation has been provisioned there.
 
 ## 1. Create the backend client
 
@@ -37,8 +43,7 @@ caches the short-lived service token. Do not add a token route to your frontend.
 ```rust
 use revero::{ReveroClient, ReveroClientOptions, Scope};
 
-let revero = ReveroClient::new(ReveroClientOptions::new(
-    std::env::var("REVERO_BASE_URL")?,
+let revero = ReveroClient::new(ReveroClientOptions::production(
     std::env::var("REVERO_CLIENT_ID")?,
     std::env::var("REVERO_CLIENT_SECRET")?,
     vec![
@@ -56,7 +61,9 @@ let revero = ReveroClient::new(ReveroClientOptions::new(
 
 `external_id` is your stable identifier. Reusing it returns the same meeting,
 which makes a lost response safe to replay. `output_profiles` names the
-documents you need. Put authoritative facts that generation must not reinterpret
+documents you need; `GET /output-profiles` lists the keys your organisation may
+ask for, and an unknown key is refused as `unknown_output_profile` with the
+valid ones named. Put authoritative facts that generation must not reinterpret
 in `locked_context`.
 
 <Tabs>
@@ -66,7 +73,7 @@ in `locked_context`.
 let meeting = revero
     .create_meeting(&MeetingCreate {
         external_id: "board-meeting-2026-09-04".into(),
-        output_profiles: Some(vec!["transcript".into(), "minutes".into()]),
+        output_profiles: Some(vec!["transcript".into(), "meeting_summary".into()]),
         locked_context: Some(serde_json::from_value(serde_json::json!({
             "organisation": "Example municipality",
             "meeting_kind": "Board meeting"
@@ -108,7 +115,18 @@ let prepared = revero
 </Tabs>
 
 The ready-made React component and headless alternative are shown in
-[Record from a browser](/browser-recorder).
+[Record from a browser](/browser-recorder). Three things belong in your
+frontend and are easy to leave out until a real meeting finds them:
+
+- **A break.** `pause()` and `resume()` keep one recording open across a lunch
+  break, which is one transcript with no gap rather than two meetings to
+  reconcile.
+- **A refused microphone.** `state.errorCode` is `microphone_denied`, and it
+  needs a different sentence and a different button than a failed upload. Branch
+  on the code; never parse the message.
+- **An interrupted recording.** Audio survives a closed tab in IndexedDB.
+  Restored state carries `restored: true` and the original `startedAt`, so tell
+  the person what you found rather than showing a bare send button.
 
 ## 4. Upload directly, then complete from the backend
 
@@ -186,30 +204,42 @@ for output in revero.list_outputs(&meeting.id).await? {
   </Tab>
 </Tabs>
 
+`content` for a generated document is CommonMark, and sentences grounded in
+the meeting are wrapped in `<cite>` elements. Rendering it raw shows that markup
+to your users. [What the documents contain](/outputs) has the shape of each
+profile and a one-line way to remove the tags.
+
 ## 7. Verify webhooks and reconcile
 
-Verify `Flyt-Signature` against the raw request bytes before parsing JSON.
-Reject timestamps more than five minutes from your clock and accept any valid
-`v1` signature during secret rotation. Deduplicate on the envelope `id`, also
-sent as `Flyt-Event-Id`; delivery is at-least-once and unordered.
+Revero follows [Standard Webhooks](https://www.standardwebhooks.com). Verify
+`webhook-signature` against the raw request bytes with the endpoint's `whsec_`
+secret before parsing JSON. Reject timestamps more than five minutes from your
+clock and accept any valid `v1` signature during secret rotation. Deduplicate on
+`webhook-id`, which stays the same on every retry; delivery is at-least-once and
+unordered. Any Standard Webhooks library verifies these requests too.
 
 <Tabs>
   <Tab title="Rust" language="rust">
 
 ```rust
-use revero::webhooks::{self, WebhookEnvelope};
+use revero::webhooks::{self, WebhookEnvelope, WebhookHeaders};
 
+let headers = WebhookHeaders {
+    id: webhook_id_header,
+    timestamp: webhook_timestamp_header,
+    signature: webhook_signature_header,
+};
 let event: WebhookEnvelope = webhooks::verify_and_parse(
-    signature_header,
-    signing_secret.as_bytes(),
+    headers,
+    &signing_secret, // whsec_...
     raw_body,
     unix_timestamp_now,
     webhooks::DEFAULT_TOLERANCE_SECONDS,
 )?;
 
-if deduplication_store.insert_once(&event.id).await? {
-    // Follow the event links with the backend client. The API state wins if a
-    // webhook was delayed, duplicated or delivered out of order.
+if deduplication_store.insert_once(headers.id).await? {
+    // Follow `event.data.links` with the backend client. The API state wins if
+    // a webhook was delayed, duplicated or delivered out of order.
     reconcile_from_revero(&revero, &event).await?;
 }
 ```
@@ -217,8 +247,10 @@ if deduplication_store.insert_once(&event.id).await? {
   </Tab>
 </Tabs>
 
-Return `2xx` quickly. Revero retries `429`, `5xx` and timeouts, does not follow
-redirects, and permanently stops on other `4xx` responses.
+Return `2xx` quickly. Revero retries every other response, and timeouts, for
+about three days, and does not follow redirects. A `410` tells Revero the
+endpoint is gone: it stops and disables the endpoint until an admin enables it
+again.
 
 ## Give this task to a coding agent
 
@@ -228,10 +260,13 @@ repository. It deliberately names the source of truth and the complete outcome.
 ```text
 Implement a production-shaped Revero integration in this repository.
 
-Use the Revero documentation MCP server at
-https://docs.revero.no/_mcp/server and the Rust examples at
-https://docs.revero.no/welcome.md. Do not infer undocumented
-URLs, fields, error codes or retry behaviour.
+Use the docs-search MCP server for this documentation site,
+https://docs.revero.no/_mcp/server (it searches these pages only; it is not
+Revero's product MCP server), and the Rust examples at
+https://docs.revero.no/welcome.md. Read https://docs.revero.no/data-model.md
+BEFORE designing any schema, and https://docs.revero.no/outputs.md before
+rendering any document. Do not infer undocumented URLs, fields, error codes or
+retry behaviour.
 
 Backend (Rust with Axum): use the `revero` crate. Keep REVERO_CLIENT_ID,
 REVERO_CLIENT_SECRET, the service access token and webhook signing secret on
@@ -241,18 +276,26 @@ short-lived upload instruction and recording id to the browser; complete the
 recording with a stable Idempotency-Key; wait for the operation with a hard
 deadline while respecting Retry-After and rate limits; retrieve completed
 outputs; and verify webhook signatures over the raw body before decoding the
-typed envelope. Deduplicate webhooks by event id and reconcile every event by
+typed envelope (Standard Webhooks, whsec_ secret). Deduplicate webhooks by
+webhook-id and reconcile every event by
 reading authoritative API state.
 
 Frontend (Next.js with React): use `@revero/recorder`. Provide both a page with
-the ready-made ReveroRecorder component and a small headless example. Browser
-code may call only the customer backend and the short-lived upload URL. It must
+the ready-made ReveroRecorder component and a small headless example. Support
+pause and resume so one recording survives a break, render elapsed time with
+elapsedMs, and branch on state.errorCode rather than the message. Tell the
+person when a restored recording was found and when it started. Browser code
+may call only the customer backend and the short-lived upload URL. It must
 never accept or expose an OAuth client secret or Revero service access token.
 
 Persist returned output documents in the customer application's own storage.
+Persist returned output documents in the customer application's own storage,
+removing the <cite> elements before rendering them unless you show provenance.
+
 Add tests for replaying completion with the same idempotency key, a polling
 deadline, Retry-After, duplicate webhook delivery, SSR import of the recorder,
-and an interrupted local recording that resumes upload. Run formatting,
+an interrupted local recording that resumes upload, and a recording that is
+paused and resumed before it is submitted. Run formatting,
 typechecking, tests and production builds, then report the commands and exact
 results.
 ```

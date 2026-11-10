@@ -1,6 +1,6 @@
 {
   "name": "@revero/recorder",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Durable browser recording and direct upload for Revero integrations",
   "license": "Apache-2.0",
   "homepage": "https://docs.revero.no/browser-recorder",
@@ -53,7 +53,13 @@
     "react": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^20.8.9",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^19.2.10",
+    "@types/react-dom": "^19.2.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "typescript": "^5.9.3"
   }
 }

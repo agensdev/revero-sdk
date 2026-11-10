@@ -3,6 +3,8 @@ pub use crate::prelude::*;
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct MeetingCreate {
     /// Your own identifier for this meeting. Creation is idempotent on it: re-sending an identical request returns the same meeting with 200 instead of 201. Re-using it for a DIFFERENT request (other documents, another language) is a 409 `external_id_conflict`.
+    ///
+    /// One meeting carries ONE recording, so this identifier is what decides the shape of your own data model. A gathering captured in several sittings, such as a lunch break or a session resumed the next day, is several meetings with several `external_id`s, not several recordings under one. Completing a second recording for a meeting already being processed is a 409 `meeting_already_processing`.
     #[serde(default)]
     pub external_id: String,
     /// Spoken language, for transcription and generation.

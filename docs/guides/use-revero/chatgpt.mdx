@@ -1,0 +1,67 @@
+---
+title: Connect ChatGPT to Revero
+description: Add Revero to ChatGPT as a plugin, on a personal account or in a managed workspace.
+hide-page-actions: true
+---
+
+ChatGPT reaches MCP servers such as Revero through plugins, which it offers in
+developer mode on the web. How you add Revero depends on whether your ChatGPT
+account is personal or part of a workspace your company manages.
+
+You need the server address:
+
+```text
+https://api.revero.no/mcp
+```
+
+<Note>
+  Your Revero organisation must have agent access. If [Connected
+  agents](https://revero.no/settings/agents) says it is not part of your organisation's
+  subscription, contact Revero at [support@revero.no](mailto:support@revero.no) first.
+</Note>
+
+## A personal account
+
+1. In ChatGPT on the web, open **Settings** and turn on **Developer mode**. It is
+   currently under **Security and login**.
+2. Open **Plugins** and select the plus button to create a plugin.
+3. Name it `Revero` and paste the server address as the MCP server URL. Choose
+   OAuth if ChatGPT asks how to sign in: ChatGPT registers itself with Revero,
+   so there is no client id or secret to enter.
+4. Create the plugin, then install it from your personal plugins.
+5. When ChatGPT opens the Revero sign-in page, sign in with your Revero
+   account. On the consent page, choose the organisation and what ChatGPT may
+   do there, then approve.
+
+## A managed workspace
+
+In a Business, Enterprise or Edu workspace, members cannot add a plugin like
+this on their own. A workspace admin or owner allows developer mode in the
+workspace settings, adds Revero as a custom plugin with the server address,
+tests it and publishes it to the workspace. Enterprise and Edu admins can also
+choose who may use it.
+
+Once it is published, each member connects it and signs in with their own
+Revero account. Publishing reaches nobody's meetings: each person's approval on
+the Revero consent page does that, for that person only.
+
+## Use it in a chat
+
+At the top of the ChatGPT home page, switch from **Chat** to **Work** and start
+a new chat. Type `@` and pick Revero, or choose it from the tools menu. Then
+ask, for example, "list my meetings from last week in Revero".
+
+Whether ChatGPT asks before it runs an action that changes something, such as
+moving a meeting to a folder, depends on your permission settings. On a
+personal account you choose when apps ask: always, before changes, or only
+before important changes. In a Business or Enterprise workspace, the admin sets
+the defaults.
+
+## Remove it
+
+- In Revero, open [Connected agents](https://revero.no/settings/agents) and
+  select **Remove access**. This is what withdraws the access.
+- In ChatGPT, remove the Revero plugin.
+
+See [what you agree to](/use-revero/overview#what-you-agree-to) for what each
+permission on the consent page means.

@@ -13,6 +13,52 @@ impl PublicApiClient {
         })
     }
 
+    /// List the output profiles your organisation may name in `output_profiles`.
+    ///
+    /// Resolved for the calling organisation, not the platform catalogue: a
+    /// document Revero restricts to selected organisations is absent here for
+    /// everyone else, and `POST /meetings` refuses exactly what this omits. Each
+    /// entry's `version` is what a meeting created now would pin.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use revero::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         username: Some("<username>".to_string()),
+    ///         password: Some("<password>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = GeneratedReveroClient::new(config).expect("Failed to build client");
+    ///     client.public_api.list_public_output_profiles(None).await;
+    /// }
+    /// ```
+    pub async fn list_public_output_profiles(
+        &self,
+        options: Option<RequestOptions>,
+    ) -> Result<Vec<OutputProfileRead>, ApiError> {
+        self.http_client
+            .execute_request(
+                Method::GET,
+                "public/v1/output-profiles",
+                None,
+                None,
+                options,
+            )
+            .await
+    }
+
     /// Create a meeting, idempotent within the OAuth client by external_id.
     ///
     /// # Arguments

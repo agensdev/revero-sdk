@@ -1,0 +1,10 @@
+## Output profiles are discoverable
+
+<ChangelogTags>api</ChangelogTags>
+
+`GET /public/v1/output-profiles` lists the documents your organisation may name
+in `output_profiles`, resolved for your organisation rather than copied from a
+static list. An unknown key is now refused as `unknown_output_profile` with the
+offending keys and the valid ones in the message, instead of the generic
+`validation_error`. The quickstart names `meeting_summary`, the key it should
+have named from the start.

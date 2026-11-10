@@ -1,0 +1,22 @@
+## The recorder takes a break, and says what went wrong
+
+<ChangelogTags>packages, docs</ChangelogTags>
+
+`@revero/recorder` 0.2.0 adds `pause()` and `resume()`, so one recording
+survives a lunch break as one meeting with one transcript instead of two
+sittings to reconcile. Failures now carry a stable `errorCode` beside the human
+message, so a refused microphone and a failed upload can finally be told apart
+without parsing English prose. A restored recording says it was restored and
+when it started, `elapsedMs` reports pause-aware duration, and the live
+`MediaStream` is reachable for a level meter.
+
+Two fixes in the same release. The ready-made component rendered no control in
+the `submitted` state, so it could record only once per mount; it now offers
+`labels.again`. And the hook rebuilt its controller whenever an option's
+identity changed, which every documented example triggered, so a re-render of
+the surrounding component restarted a recording in progress.
+
+New guides: [Model your meetings](/data-model), which says that one meeting
+carries one recording before you design a schema around it, and
+[What the documents contain](/outputs), which describes each profile's payload
+and the `<cite>` markup inside generated markdown.

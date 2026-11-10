@@ -1,5 +1,10 @@
-//! Verify and decode Revero's signed, terminal webhook notifications.
+//! Verify and decode Revero's terminal webhook notifications.
+//!
+//! Revero follows Standard Webhooks (<https://www.standardwebhooks.com>):
+//! `webhook-id`, `webhook-timestamp` and `webhook-signature` headers, signed
+//! with the endpoint's `whsec_` secret over `{id}.{timestamp}.{body}`.
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
@@ -8,18 +13,21 @@ pub use crate::{
     PublicWebhookEventType as WebhookEventType, PublicWebhookLinks as WebhookLinks,
 };
 
-pub const SIGNATURE_HEADER: &str = "Flyt-Signature";
-pub const EVENT_ID_HEADER: &str = "Flyt-Event-Id";
-pub const EVENT_TYPE_HEADER: &str = "Flyt-Event-Type";
+pub const ID_HEADER: &str = "webhook-id";
+pub const TIMESTAMP_HEADER: &str = "webhook-timestamp";
+pub const SIGNATURE_HEADER: &str = "webhook-signature";
+pub const SECRET_PREFIX: &str = "whsec_";
 pub const DEFAULT_TOLERANCE_SECONDS: i64 = 300;
 
 type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WebhookError {
-    #[error("the Flyt-Signature header is missing or malformed")]
-    InvalidSignature,
-    #[error("the webhook signature timestamp is outside the accepted window")]
+    #[error("the signing secret is not a whsec_ secret")]
+    InvalidSecret,
+    #[error("a webhook-id, webhook-timestamp or webhook-signature header is missing or malformed")]
+    InvalidHeaders,
+    #[error("the webhook timestamp is outside the accepted window")]
     TimestampOutsideTolerance,
     #[error("no v1 signature matches the supplied secret")]
     SignatureMismatch,
@@ -27,86 +35,85 @@ pub enum WebhookError {
     InvalidEnvelope(#[from] serde_json::Error),
 }
 
-fn signed_material(timestamp: i64, body: &[u8]) -> Vec<u8> {
-    let mut material = timestamp.to_string().into_bytes();
-    material.push(b'.');
-    material.extend_from_slice(body);
-    material
+/// The three headers of one delivery, as the receiver read them.
+#[derive(Debug, Clone, Copy)]
+pub struct WebhookHeaders<'a> {
+    pub id: &'a str,
+    pub timestamp: &'a str,
+    pub signature: &'a str,
 }
 
-pub fn parse_signature(header: &str) -> Result<(i64, Vec<&str>), WebhookError> {
-    let mut timestamp = None;
-    let mut signatures = Vec::new();
-    for chunk in header.split(',') {
-        let Some((key, value)) = chunk.trim().split_once('=') else {
-            continue;
-        };
-        match key {
-            "t" => {
-                timestamp = Some(
-                    value
-                        .parse::<i64>()
-                        .map_err(|_| WebhookError::InvalidSignature)?,
-                );
-            }
-            "v1" if !value.is_empty() => signatures.push(value),
-            _ => {}
-        }
-    }
-    match (timestamp, signatures.is_empty()) {
-        (Some(timestamp), false) => Ok((timestamp, signatures)),
-        _ => Err(WebhookError::InvalidSignature),
-    }
+/// The key behind a `whsec_<base64>` secret.
+pub fn parse_secret(secret: &str) -> Result<Vec<u8>, WebhookError> {
+    let encoded = secret
+        .strip_prefix(SECRET_PREFIX)
+        .ok_or(WebhookError::InvalidSecret)?;
+    STANDARD
+        .decode(encoded)
+        .map_err(|_| WebhookError::InvalidSecret)
 }
 
-fn decode_hex(value: &str) -> Option<Vec<u8>> {
-    if !value.len().is_multiple_of(2) {
-        return None;
-    }
-    (0..value.len())
-        .step_by(2)
-        .map(|index| u8::from_str_radix(&value[index..index + 2], 16).ok())
-        .collect()
-}
-
+/// Verify one delivery's headers against its raw body with a `whsec_` secret.
+///
+/// Every `v1,` signature in `webhook-signature` is tried, so a delivery made
+/// during a secret rotation verifies with either secret.
 pub fn verify(
-    header: &str,
-    secret: &[u8],
+    headers: WebhookHeaders<'_>,
+    secret: &str,
     body: &[u8],
     now: i64,
     tolerance_seconds: i64,
 ) -> Result<(), WebhookError> {
-    let (timestamp, signatures) = parse_signature(header)?;
+    let key = parse_secret(secret)?;
+    if headers.id.is_empty() || headers.id.contains('.') {
+        return Err(WebhookError::InvalidHeaders);
+    }
+    let timestamp: i64 = headers
+        .timestamp
+        .parse()
+        .map_err(|_| WebhookError::InvalidHeaders)?;
     if now.abs_diff(timestamp) > tolerance_seconds.unsigned_abs() {
         return Err(WebhookError::TimestampOutsideTolerance);
     }
-    let material = signed_material(timestamp, body);
-    let matches = signatures.iter().any(|candidate| {
-        let Some(expected) = decode_hex(candidate) else {
-            return false;
+    let mut material = format!("{}.{}.", headers.id, timestamp).into_bytes();
+    material.extend_from_slice(body);
+
+    let mut saw_v1 = false;
+    for entry in headers.signature.split_whitespace() {
+        let Some((version, value)) = entry.split_once(',') else {
+            return Err(WebhookError::InvalidHeaders);
         };
-        let Ok(mut mac) = HmacSha256::new_from_slice(secret) else {
-            return false;
+        if version != "v1" {
+            continue;
+        }
+        saw_v1 = true;
+        let Ok(expected) = STANDARD.decode(value) else {
+            continue;
+        };
+        let Ok(mut mac) = HmacSha256::new_from_slice(&key) else {
+            return Err(WebhookError::InvalidSecret);
         };
         mac.update(&material);
-        mac.verify_slice(&expected).is_ok()
-    });
-    if matches {
-        Ok(())
-    } else {
+        if mac.verify_slice(&expected).is_ok() {
+            return Ok(());
+        }
+    }
+    if saw_v1 {
         Err(WebhookError::SignatureMismatch)
+    } else {
+        Err(WebhookError::InvalidHeaders)
     }
 }
 
 /// Verify the raw body before parsing it, then return the typed envelope.
 pub fn verify_and_parse(
-    header: &str,
-    secret: &[u8],
+    headers: WebhookHeaders<'_>,
+    secret: &str,
     body: &[u8],
     now: i64,
     tolerance_seconds: i64,
 ) -> Result<WebhookEnvelope, WebhookError> {
-    verify(header, secret, body, now, tolerance_seconds)?;
+    verify(headers, secret, body, now, tolerance_seconds)?;
     Ok(serde_json::from_slice(body)?)
 }
 
@@ -114,36 +121,73 @@ pub fn verify_and_parse(
 mod tests {
     use super::*;
 
+    // The Standard Webhooks reference libraries' own test vector.
+    const SPEC_SECRET: &str = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+    const SPEC_HEADERS: WebhookHeaders<'static> = WebhookHeaders {
+        id: "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        timestamp: "1614265330",
+        signature: "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=",
+    };
+    const SPEC_BODY: &[u8] = br#"{"test": 2432232314}"#;
+    const SPEC_NOW: i64 = 1_614_265_330;
+
+    // Signed by the PyPI `standardwebhooks` package over a Revero envelope.
+    const SECRET: &str = "whsec_cnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnI=";
+    const OTHER_SECRET: &str = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
     const NOW: i64 = 1_756_684_800;
-    const CURRENT: &[u8] = b"whsec_current_secret_value";
-    const PREVIOUS: &[u8] = b"whsec_previous_secret_value";
-    const ROTATION_HEADER: &str = "t=1756684800,v1=dff8ae8f3b0c2f4a5faf33e67c0ee2c7927ca618dabca50754ca2d0634b05117,v1=aaadf09884d91dc99146fb056be464dcb22c58ba94c1194f22978fd2d9480a86";
-    const SIGNED_BODY: &[u8] =
-        br#"{"id":"9f0c2b0e-5f7a-4d2e-9d0a-1b2c3d4e5f60","type":"operation.completed"}"#;
+    const BODY: &[u8] = br#"{"data":{"external_id":"customer-1","links":{"meeting":"https://api.revero.no/public/v1/meetings/meeting-1","operation":"https://api.revero.no/public/v1/operations/operation-1"},"meeting_id":"meeting-1","operation_id":"operation-1","operation_status":"completed"},"timestamp":"2026-09-01T09:15:00Z","type":"operation.completed"}"#;
+    const SIGNATURE: &str = "v1,ZTQj2mQ88RBOrmVHpQ7eVxBUnW/KOWNDZD/Jnl2u9Ew=";
+
+    fn headers(signature: &str) -> WebhookHeaders<'_> {
+        WebhookHeaders {
+            id: "event-1",
+            timestamp: "1756684800",
+            signature,
+        }
+    }
 
     #[test]
-    fn rotation_accepts_each_live_secret_and_rejects_tampering() {
-        assert!(verify(
-            ROTATION_HEADER,
-            CURRENT,
-            SIGNED_BODY,
-            NOW,
-            DEFAULT_TOLERANCE_SECONDS
+    fn the_spec_vector_verifies() {
+        verify(
+            SPEC_HEADERS,
+            SPEC_SECRET,
+            SPEC_BODY,
+            SPEC_NOW,
+            DEFAULT_TOLERANCE_SECONDS,
         )
-        .is_ok());
-        assert!(verify(
-            ROTATION_HEADER,
-            PREVIOUS,
-            SIGNED_BODY,
-            NOW,
-            DEFAULT_TOLERANCE_SECONDS
-        )
-        .is_ok());
+        .unwrap();
+    }
+
+    #[test]
+    fn a_changed_body_does_not_verify() {
         assert!(matches!(
             verify(
-                ROTATION_HEADER,
-                CURRENT,
-                b"tampered",
+                SPEC_HEADERS,
+                SPEC_SECRET,
+                br#"{"test": 2432232315}"#,
+                SPEC_NOW,
+                DEFAULT_TOLERANCE_SECONDS
+            ),
+            Err(WebhookError::SignatureMismatch)
+        ));
+    }
+
+    #[test]
+    fn rotation_accepts_any_listed_signature() {
+        let rotated = format!("v1,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= {SIGNATURE}");
+        verify(
+            headers(&rotated),
+            SECRET,
+            BODY,
+            NOW,
+            DEFAULT_TOLERANCE_SECONDS,
+        )
+        .unwrap();
+        assert!(matches!(
+            verify(
+                headers(SIGNATURE),
+                OTHER_SECRET,
+                BODY,
                 NOW,
                 DEFAULT_TOLERANCE_SECONDS
             ),
@@ -152,27 +196,55 @@ mod tests {
     }
 
     #[test]
-    fn verified_body_decodes_to_the_typed_envelope() {
-        let body = br#"{"schema_version":"2026-09-01","id":"event-1","type":"operation.completed","created_at":"2026-09-01T09:15:00+00:00","data":{"meeting_id":"meeting-1","external_id":"customer-1","operation_id":"operation-1","operation_status":"completed"},"links":{"meeting":"https://api.revero.no/public/v1/meetings/meeting-1","operation":"https://api.revero.no/public/v1/operations/operation-1"}}"#;
-        let mut mac = HmacSha256::new_from_slice(CURRENT).unwrap();
-        mac.update(&signed_material(NOW, body));
-        let header = format!("t={NOW},v1={}", hex(&mac.finalize().into_bytes()));
+    fn a_stale_or_future_timestamp_is_refused() {
+        for now in [NOW + 301, NOW - 301] {
+            assert!(matches!(
+                verify(
+                    headers(SIGNATURE),
+                    SECRET,
+                    BODY,
+                    now,
+                    DEFAULT_TOLERANCE_SECONDS
+                ),
+                Err(WebhookError::TimestampOutsideTolerance)
+            ));
+        }
+    }
 
-        let envelope =
-            verify_and_parse(&header, CURRENT, body, NOW, DEFAULT_TOLERANCE_SECONDS).unwrap();
+    #[test]
+    fn malformed_input_is_refused() {
+        assert!(matches!(
+            verify(headers(SIGNATURE), "not-a-secret", BODY, NOW, 300),
+            Err(WebhookError::InvalidSecret)
+        ));
+        assert!(matches!(
+            verify(headers(""), SECRET, BODY, NOW, 300),
+            Err(WebhookError::InvalidHeaders)
+        ));
+        assert!(matches!(
+            verify(headers("v1a,xyz"), SECRET, BODY, NOW, 300),
+            Err(WebhookError::InvalidHeaders)
+        ));
+    }
 
+    #[test]
+    fn a_verified_body_decodes_to_the_typed_envelope() {
+        let envelope = verify_and_parse(
+            headers(SIGNATURE),
+            SECRET,
+            BODY,
+            NOW,
+            DEFAULT_TOLERANCE_SECONDS,
+        )
+        .unwrap();
         assert_eq!(envelope.r#type, WebhookEventType::OperationCompleted);
         assert_eq!(
             envelope.data.operation_status,
             Some(crate::PublicOperationStatus::Completed)
         );
         assert_eq!(
-            envelope.links.operation.as_deref(),
+            envelope.data.links.operation.as_deref(),
             Some("https://api.revero.no/public/v1/operations/operation-1")
         );
-    }
-
-    fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
     }
 }

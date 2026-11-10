@@ -1,0 +1,89 @@
+---
+title: Model your meetings
+description: How a meeting, its recording and its documents relate, and what a break in the middle means for your schema.
+slug: data-model
+---
+
+Read this before you design your own tables. One sentence here decides the
+shape of your schema, and it is cheap now and expensive after your first
+migration.
+
+## One meeting carries one recording
+
+A Revero meeting is the unit of work. It has exactly one recording, and from
+that recording it produces the documents you named when you created it.
+
+There is no way to add a second recording to a meeting. Completing one while
+another is being processed is refused with `409 meeting_already_processing`.
+
+So a gathering captured in several sittings is several Revero meetings. A
+general assembly that breaks for lunch and resumes at 13:00 is two meetings if
+you stop recording over the break, and one meeting if you pause instead. Both
+are correct; they are different products.
+
+<Note>
+  If you can keep one recording open across the break, do. One meeting means one transcript with no
+  gap in the middle, one summary written from the whole proceeding, and nothing for you to reconcile
+  afterwards. The browser recorder supports `pause()` and `resume()` for exactly this. See [Record
+  from a browser](/browser-recorder).
+</Note>
+
+## `external_id` is your key, and it is the idempotency key too
+
+Every meeting carries your own identifier. Creation is idempotent on it:
+sending the identical request twice returns the same meeting with `200`
+instead of `201`, which is what makes a retry safe after a dropped connection.
+
+Re-using it for a **different** request — other documents, another language —
+is refused with `409 external_id_conflict`. The first request's meeting stays
+as it was.
+
+That gives you the rule for naming:
+
+| your situation                             | `external_id`                                                 |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| one gathering, one recording               | one id, e.g. `gm-2026-04-17`                                  |
+| one gathering, several sittings            | one id per sitting, e.g. `gm-2026-04-17-1`, `gm-2026-04-17-2` |
+| a retry of a request you are unsure landed | the SAME id, with an identical body                           |
+
+Store your own grouping. Revero does not know that two meetings were the same
+assembly, and will not join them for you.
+
+## The shape, end to end
+
+```
+your gathering
+└── Revero meeting            external_id, language, output_profiles, locked_context
+    ├── recording             prepared, uploaded directly, completed once
+    │   └── operation         the durable receipt you poll
+    └── outputs               one per profile you named
+        ├── transcript
+        └── meeting_summary
+```
+
+Four things are decided at creation and cannot be changed afterwards:
+
+- **`output_profiles`** — which documents this meeting produces. The profile
+  **version** is pinned now, so publishing a newer version later never changes
+  what this meeting yields.
+- **`language`** — the spoken language, for transcription and generation.
+- **`locked_context`** — your authoritative facts: a case number, the
+  attendees, a date. Stored encrypted, returned as its own field, and never
+  rewritten by generation, so your system stays authoritative for legal and
+  business facts. Captured once, on the request that creates the meeting.
+- **retention** — the organisation's policy is snapshotted onto the meeting,
+  so the meeting expires on its own clock rather than on whatever the policy
+  says later.
+
+Everything else is produced.
+
+## What to store on your side
+
+At minimum, per meeting: your `external_id`, the Revero `meeting_id`, and the
+`operation_id` of the completion command. The operation is what turns an
+uncertain answer into a certain one, so keep it even after a timeout: a
+timeout is an uncertain observation, never evidence that processing failed.
+
+Do not store the outputs' content as your only copy of the truth if your
+domain has a legal document of its own. `locked_context` exists precisely so
+the two can live side by side without generation touching yours.

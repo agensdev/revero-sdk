@@ -6,9 +6,9 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 
 use crate::{
-    ApiError, ClientConfig, GeneratedReveroClient, MeetingCreate, MeetingRead, OperationRead,
-    OutputContentRead, OutputRead, PresignedUpload, PublicOperationStatus, RecordingCreate,
-    RecordingPrepared, RequestOptions,
+    ApiError, ClientConfig, Environment, GeneratedReveroClient, MeetingCreate, MeetingRead,
+    OperationRead, OutputContentRead, OutputRead, PresignedUpload, PublicOperationStatus,
+    RecordingCreate, RecordingPrepared, RequestOptions,
 };
 
 const TOKEN_PATH: &str = "/oauth/partner/token";
@@ -54,6 +54,26 @@ impl ReveroClientOptions {
             scopes,
             timeout: Duration::from_secs(60),
         }
+    }
+
+    /// Options for a named Revero environment, so no hostname has to be
+    /// discovered by other means. `Environment::default()` is production.
+    pub fn for_environment(
+        environment: Environment,
+        client_id: impl Into<String>,
+        client_secret: impl Into<String>,
+        scopes: Vec<Scope>,
+    ) -> Self {
+        Self::new(environment.url(), client_id, client_secret, scopes)
+    }
+
+    /// Options for production, `https://api.revero.no`.
+    pub fn production(
+        client_id: impl Into<String>,
+        client_secret: impl Into<String>,
+        scopes: Vec<Scope>,
+    ) -> Self {
+        Self::for_environment(Environment::Production, client_id, client_secret, scopes)
     }
 }
 
@@ -536,6 +556,38 @@ mod tests {
 
         assert_eq!(state.upload_calls.load(Ordering::SeqCst), 1);
         assert_eq!(state.token_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn default_environment_is_an_absolute_https_base_url() {
+        let base_url = ClientConfig::default().base_url;
+        let parsed = Url::parse(&base_url)
+            .unwrap_or_else(|_| panic!("default base_url {base_url:?} is not absolute"));
+        assert_eq!(parsed.scheme(), "https", "{base_url}");
+        assert!(parsed.host_str().is_some(), "{base_url}");
+    }
+
+    #[test]
+    fn named_environments_build_a_client_without_a_base_url() {
+        let production = ReveroClient::new(ReveroClientOptions::production(
+            "id",
+            "secret",
+            vec![Scope::MeetingsRead],
+        ))
+        .expect("production options are complete");
+        assert_eq!(&*production.resource, "https://api.revero.no/public/v1");
+
+        let staging = ReveroClient::new(ReveroClientOptions::for_environment(
+            Environment::Staging,
+            "id",
+            "secret",
+            vec![Scope::MeetingsRead],
+        ))
+        .expect("staging options are complete");
+        assert_eq!(
+            &*staging.resource,
+            "https://api.staging.revero.no/public/v1"
+        );
     }
 
     #[test]

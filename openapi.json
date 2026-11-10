@@ -2,13 +2,19 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Revero Public API",
-    "description": "Create meetings, upload audio directly, follow authoritative operations and retrieve generated outputs. See the complete quickstart at https://docs.revero.no/welcome.\n\nThis is not a browser-callable surface: service credentials, bearer tokens and authenticated calls belong only in your backend. Browser code receives only the short-lived presigned upload request.\n\nReplay a lost completion response with the SAME `Idempotency-Key`. After a terminal retryable failure, send a NEW `Idempotency-Key`; the old key still names the failed operation.\n\nA new key while work is still outstanding is a `409`, as is one after `retryable: false`. `transcription_empty` and `upload_unreadable` need new audio and a new meeting. `processing_not_entitled`, `output_profile_unavailable`, `organisation_key_unavailable` and `jurisdiction_unavailable` require an administrator or operator. Branch on `failure_code`.\n\nAcquire a token from `/oauth/partner/token`. Every `/public/v1` error uses `{\"code\", \"message\"}`; branch on the stable `code`, never the message. OAuth token errors use the RFC 6749 error shape.",
+    "description": "Create meetings, upload audio directly, follow authoritative operations and retrieve generated outputs. See the complete quickstart at https://docs.revero.no/welcome.\n\nThis is not a browser-callable surface: service credentials, bearer tokens and authenticated calls belong only in your backend. Browser code receives only the short-lived presigned upload request.\n\nReplay a lost completion response with the SAME `Idempotency-Key`. After a terminal retryable failure, send a NEW `Idempotency-Key`; the old key still names the failed operation.\n\nA new key while work is still outstanding is a `409`, as is one after `retryable: false`. `transcription_empty` (silent OR unintelligible audio) and `upload_unreadable` need new audio and a new meeting. `processing_not_entitled`, `output_profile_unavailable`, `organisation_key_unavailable` and `jurisdiction_unavailable` require an administrator or operator. Branch on `failure_code`.\n\nAcquire a token from `/oauth/partner/token`. Every `/public/v1` error uses `{\"code\", \"message\"}`; branch on the stable `code`, never the message. OAuth token errors use the RFC 6749 error shape.",
     "version": "1.0.0"
   },
   "servers": [
     {
-      "url": "/",
-      "description": "Current environment"
+      "url": "https://api.revero.no",
+      "description": "Production",
+      "x-fern-server-name": "Production"
+    },
+    {
+      "url": "https://api.staging.revero.no",
+      "description": "Staging",
+      "x-fern-server-name": "Staging"
     }
   ],
   "paths": {
@@ -121,6 +127,69 @@
         ]
       }
     },
+    "/public/v1/output-profiles": {
+      "get": {
+        "tags": [
+          "public-api"
+        ],
+        "summary": "List Output Profiles",
+        "description": "List the output profiles your organisation may name in `output_profiles`.\n\nResolved for the calling organisation, not the platform catalogue: a\ndocument Revero restricts to selected organisations is absent here for\neveryone else, and `POST /meetings` refuses exactly what this omits. Each\nentry's `version` is what a meeting created now would pin.",
+        "operationId": "list_public_output_profiles",
+        "responses": {
+          "200": {
+            "description": "The documents this organisation may ask a meeting to produce.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OutputProfileRead"
+                  },
+                  "type": "array",
+                  "title": "Response List Public Output Profiles"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_token` \u2014 the bearer token is missing, expired, revoked, or belongs to a client whose organisation is suspended or no longer entitled to the Public API. Obtain a new token; if that also fails, an administrator must act.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope` \u2014 the token is valid but was not issued with the scope this route requires. Request the scope at token exchange.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ReveroPublicOAuth": [
+              "meetings:read"
+            ]
+          }
+        ]
+      }
+    },
     "/public/v1/meetings": {
       "post": {
         "tags": [
@@ -151,7 +220,7 @@
             }
           },
           "422": {
-            "description": "Invalid request",
+            "description": "`unknown_output_profile` \u2014 an `output_profiles` entry names a document this release does not offer; the message lists the offending keys and the valid ones, and `GET /output-profiles` lists what your organisation may ask for. `validation_error` \u2014 any other malformed body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -171,7 +240,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, or `output_profile_unavailable` \u2014 a requested output profile's template is not available to this organisation. The key is valid; the grant is missing, and only an administrator can add one. Retrying will not change the answer.",
+            "description": "`insufficient_scope`, or `output_profile_unavailable` \u2014 a requested output profile's template is not available to this organisation. The key is valid; the grant is missing, and only an administrator can add one. Retrying will not change the answer. Or `transcription_minutes_used_up` \u2014 the organisation has used the transcription minutes of its plan for this period. A replay of a meeting already created is not refused. New minutes come with the next period, or when an administrator adds them.",
             "content": {
               "application/json": {
                 "schema": {
@@ -201,7 +270,7 @@
             }
           },
           "503": {
-            "description": "`processing_unavailable` \u2014 this organisation cannot be processed yet. Not your fault and not a retry you can win; an administrator must enable it.",
+            "description": "`processing_unavailable` \u2014 Revero cannot process content in this environment yet. Platform-wide, identical for every organisation here, and changed by neither you nor a Revero administrator. Not a retry you can win; contact Revero.",
             "content": {
               "application/json": {
                 "schema": {
@@ -299,7 +368,7 @@
             }
           },
           "503": {
-            "description": "`processing_unavailable` \u2014 processing or stored context is temporarily unavailable. Contact your Revero administrator.",
+            "description": "`processing_unavailable` \u2014 the stored context cannot be read in this environment. See `POST /meetings`: platform-wide, not a setting on your organisation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -380,7 +449,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope` \u2014 the token is valid but was not issued with the scope this route requires. Request the scope at token exchange.",
+            "description": "`insufficient_scope`, or `transcription_minutes_used_up` \u2014 the organisation has used the transcription minutes of its plan for this period. New minutes come with the next period, or when an administrator adds them.",
             "content": {
               "application/json": {
                 "schema": {
@@ -718,7 +787,7 @@
             }
           },
           "503": {
-            "description": "`processing_unavailable` \u2014 this output is temporarily unavailable. Contact your Revero administrator.",
+            "description": "`processing_unavailable` \u2014 this output cannot be read in this environment. See `POST /meetings`: platform-wide, not a setting on your organisation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -816,29 +885,40 @@
     "terminal-event": {
       "post": {
         "summary": "Receive a terminal operation or output event",
-        "description": "Revero delivers terminal events at least once and without ordering guarantees. Verify `Flyt-Signature` against the exact request bytes before decoding this envelope, deduplicate on the event ID, return a 2xx response quickly, and reconcile through the authenticated links. Revero retries timeouts, 429 and 5xx responses; it stops on other 4xx responses and does not follow redirects.",
+        "description": "Revero delivers terminal events at least once and without ordering guarantees, following Standard Webhooks (standardwebhooks.com). Verify `webhook-signature` against the exact request bytes with your `whsec_` secret before decoding this body, deduplicate on `webhook-id`, return a 2xx response quickly, and reconcile through the authenticated links. Revero retries every other response, and timeouts, for about three days. A 410 disables the endpoint. Redirects are not followed.",
         "operationId": "receive_public_terminal_event",
         "parameters": [
           {
-            "description": "One timestamp and one or more HMAC-SHA256 signatures: `t=<unix>,v1=<hex>`. Accept any matching `v1` during rotation.",
+            "description": "The stable event ID. The same on every retry.",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Flyt-Signature",
-              "description": "One timestamp and one or more HMAC-SHA256 signatures: `t=<unix>,v1=<hex>`. Accept any matching `v1` during rotation."
+              "title": "Webhook-Id",
+              "description": "The stable event ID. The same on every retry."
             },
-            "name": "Flyt-Signature",
+            "name": "webhook-id",
             "in": "header"
           },
           {
-            "description": "The same stable event ID as the envelope `id` field.",
+            "description": "When this attempt was sent, in Unix seconds.",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Flyt-Event-Id",
-              "description": "The same stable event ID as the envelope `id` field."
+              "title": "Webhook-Timestamp",
+              "description": "When this attempt was sent, in Unix seconds."
             },
-            "name": "Flyt-Event-Id",
+            "name": "webhook-timestamp",
+            "in": "header"
+          },
+          {
+            "description": "Space-separated `v1,<base64>` HMAC-SHA256 signatures over `{webhook-id}.{webhook-timestamp}.{body}`. Accept any matching `v1` during rotation.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Webhook-Signature",
+              "description": "Space-separated `v1,<base64>` HMAC-SHA256 signatures over `{webhook-id}.{webhook-timestamp}.{body}`. Accept any matching `v1` during rotation."
+            },
+            "name": "webhook-signature",
             "in": "header"
           }
         ],
@@ -857,7 +937,10 @@
             "description": "The receiver accepted the event for reconciliation."
           },
           "422": {
-            "description": "The receiver rejected the event body. Revero treats this as a permanent delivery failure and does not retry it."
+            "description": "The receiver rejected the event body. Revero retries it like any other failure, so answer 2xx for an event you will ignore."
+          },
+          "410": {
+            "description": "The receiver is gone for good. Revero stops this delivery and disables the endpoint until an admin enables it again."
           }
         }
       }
@@ -957,7 +1040,7 @@
             "maxLength": 255,
             "minLength": 1,
             "title": "External Id",
-            "description": "Your own identifier for this meeting. Creation is idempotent on it: re-sending an identical request returns the same meeting with 200 instead of 201. Re-using it for a DIFFERENT request (other documents, another language) is a 409 `external_id_conflict`.",
+            "description": "Your own identifier for this meeting. Creation is idempotent on it: re-sending an identical request returns the same meeting with 200 instead of 201. Re-using it for a DIFFERENT request (other documents, another language) is a 409 `external_id_conflict`.\n\nOne meeting carries ONE recording, so this identifier is what decides the shape of your own data model. A gathering captured in several sittings, such as a lunch break or a session resumed the next day, is several meetings with several `external_id`s, not several recordings under one. Completing a second recording for a meeting already being processed is a 409 `meeting_already_processing`.",
             "examples": [
               "gm-2026-04-17"
             ]
@@ -1291,7 +1374,7 @@
               }
             ],
             "title": "Content",
-            "description": "The document as markdown. Null unless `status` is `completed`."
+            "description": "The document as CommonMark. Null unless `status` is `completed`.\n\nClaims grounded in the meeting are wrapped in a `<cite>` element marking them as evidenced: `data-seg` names a transcript segment, `data-page` a page in a document you supplied, and an optional `data-src` says which source. The wrapped text is ordinary prose and reads correctly without the tags, so a renderer that does not want provenance should REMOVE the `<cite>` elements rather than escape them. Rendering this markdown raw shows the markup to your users.\n\nThose numbers are OUR segment numbering and the `transcript` output does not carry it, so resolving a `data-seg` to a segment is not supported yet. Treat the tags as a signal that a sentence is grounded, not as a join key."
           },
           "structured_data": {
             "anyOf": [
@@ -1320,6 +1403,51 @@
         ],
         "title": "OutputContentRead",
         "description": "One output plus content when generation has completed.\n\nMeeting polls return output metadata only. Fetch content one output at a\ntime after its status becomes ``completed``."
+      },
+      "OutputProfileRead": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "description": "The stable key to send in `output_profiles`. Never renamed.",
+            "examples": [
+              "meeting_summary"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "The profile version a meeting created now would pin. Bumped when what this key produces changes meaningfully; existing meetings keep the version they pinned."
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "description": "The shape of the output resource this profile yields, as reported on `OutputRead.schema_version`.",
+            "examples": [
+              "markdown.v1"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "What the document contains, in one line."
+          },
+          "requires_generation": {
+            "type": "boolean",
+            "title": "Requires Generation",
+            "description": "Whether producing it needs a note-generation run. A profile that does not is derived from the transcript alone and survives a generation outage."
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "version",
+          "schema_version",
+          "description",
+          "requires_generation"
+        ],
+        "title": "OutputProfileRead",
+        "description": "One document your organisation may ask a meeting to produce."
       },
       "OutputRead": {
         "properties": {
@@ -1681,46 +1809,6 @@
             ],
             "title": "Retryable",
             "description": "Whether a failed operation may succeed when retried."
-          }
-        },
-        "type": "object",
-        "required": [
-          "meeting_id",
-          "external_id",
-          "operation_id"
-        ],
-        "title": "PublicWebhookData",
-        "description": "Identifiers and terminal state carried by a public webhook event."
-      },
-      "PublicWebhookEnvelope": {
-        "properties": {
-          "schema_version": {
-            "type": "string",
-            "title": "Schema Version",
-            "description": "Version of this webhook envelope contract.",
-            "examples": [
-              "2026-09-01"
-            ]
-          },
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id",
-            "description": "Stable event ID. Deduplicate repeated delivery on this value."
-          },
-          "type": {
-            "$ref": "#/components/schemas/PublicWebhookEventType",
-            "description": "Terminal event type."
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At",
-            "description": "When Revero created the event."
-          },
-          "data": {
-            "$ref": "#/components/schemas/PublicWebhookData",
-            "description": "Identifiers and terminal state."
           },
           "links": {
             "$ref": "#/components/schemas/PublicWebhookLinks",
@@ -1729,15 +1817,39 @@
         },
         "type": "object",
         "required": [
-          "schema_version",
-          "id",
-          "type",
-          "created_at",
-          "data",
+          "meeting_id",
+          "external_id",
+          "operation_id",
           "links"
         ],
+        "title": "PublicWebhookData",
+        "description": "Identifiers and terminal state carried by a public webhook event."
+      },
+      "PublicWebhookEnvelope": {
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/PublicWebhookEventType",
+            "description": "Terminal event type."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp",
+            "description": "When the event happened, UTC."
+          },
+          "data": {
+            "$ref": "#/components/schemas/PublicWebhookData",
+            "description": "Identifiers, terminal state and authenticated links."
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "timestamp",
+          "data"
+        ],
         "title": "PublicWebhookEnvelope",
-        "description": "Signed, at-least-once notification of a terminal public resource state."
+        "description": "A Standard Webhooks body: a terminal public resource state, signed and\ndelivered at least once. The event ID is the `webhook-id` header."
       },
       "PublicWebhookEventType": {
         "type": "string",
@@ -1971,7 +2083,7 @@
         "flows": {
           "clientCredentials": {
             "scopes": {
-              "meetings:read": "Read meetings, outputs, and operation status",
+              "meetings:read": "Read meetings, outputs, operation status, and the output profile catalogue",
               "meetings:write": "Create meetings",
               "recordings:write": "Prepare and complete recording uploads"
             },

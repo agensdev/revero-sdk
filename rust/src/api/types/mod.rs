@@ -11,6 +11,7 @@ pub mod oauth_exchange_client_credentials_request_grant_type;
 pub mod oauth_scope;
 pub mod operation_read;
 pub mod output_content_read;
+pub mod output_profile_read;
 pub mod output_read;
 pub mod presigned_upload;
 pub mod public_api_error;
@@ -41,6 +42,7 @@ pub use oauth_exchange_client_credentials_request_grant_type::ExchangeClientCred
 pub use oauth_scope::OauthScope;
 pub use operation_read::OperationRead;
 pub use output_content_read::OutputContentRead;
+pub use output_profile_read::OutputProfileRead;
 pub use output_read::OutputRead;
 pub use presigned_upload::PresignedUpload;
 pub use public_api_error::PublicApiError;

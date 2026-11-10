@@ -33,9 +33,29 @@ const store = new IndexedDbRecorderStore({ databaseName: `gm-${meetingId}` })
     start: "Start opptak",
     stop: "Stopp opptak",
     confirm: "Last opp opptaket",
+    again: "Nytt opptak",
   }}
 />
 ```
+
+Every state renders one control, the submitted state included: `again` discards
+the finished recording locally and returns the component to idle, so one mount
+records as many times as the person needs. `pause` and `resume` hold one
+recording open across a break, which keeps a long meeting as one Revero meeting
+with one transcript.
+
+Failures carry a stable `errorCode` beside the human `error` — branch on the
+code, never on the message. Restored state carries `restored: true` and the
+original `startedAt`. `elapsedMs(state, now)` from `@revero/recorder/core` is a
+pure, pause-aware duration, and `controller.stream` is the live `MediaStream`
+for a level meter.
+
+The recorder is created once per mount and reads `adapter`, `store` and the
+other options at call time, so an inline object literal is safe and a re-render
+of the surrounding component cannot restart a recording in progress. Swapping
+`store` in place is therefore not a reset either: to record against a different
+meeting, remount with a React `key`. Pass `onController` for anything the
+component does not render.
 
 ## Custom interface
 

@@ -37,7 +37,11 @@ pub struct OutputContentRead {
     /// When it became readable. Null until then.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<DateTime<FixedOffset>>,
-    /// The document as markdown. Null unless `status` is `completed`.
+    /// The document as CommonMark. Null unless `status` is `completed`.
+    ///
+    /// Claims grounded in the meeting are wrapped in a `<cite>` element marking them as evidenced: `data-seg` names a transcript segment, `data-page` a page in a document you supplied, and an optional `data-src` says which source. The wrapped text is ordinary prose and reads correctly without the tags, so a renderer that does not want provenance should REMOVE the `<cite>` elements rather than escape them. Rendering this markdown raw shows the markup to your users.
+    ///
+    /// Those numbers are OUR segment numbering and the `transcript` output does not carry it, so resolving a `data-seg` to a segment is not supported yet. Treat the tags as a signal that a sentence is grounded, not as a join key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     /// The same answer as machine-readable fields, when this profile declares them — `schema_version` says which shape. Null for profiles that produce prose only, and null unless `status` is `completed`.

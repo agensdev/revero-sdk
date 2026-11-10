@@ -131,6 +131,61 @@ async fn main() {
 </details>
 
 ## PublicApi
+<details><summary><code>client.public_api.<a href="/src/api/resources/public_api/client.rs">list_public_output_profiles</a>() -> Result&lt;Vec&lt;OutputProfileRead&gt;, ApiError&gt;</code></summary>
+<dl>
+<dd>
+
+#### 📝 Description
+
+<dl>
+<dd>
+
+<dl>
+<dd>
+
+List the output profiles your organisation may name in `output_profiles`.
+
+Resolved for the calling organisation, not the platform catalogue: a
+document Revero restricts to selected organisations is absent here for
+everyone else, and `POST /meetings` refuses exactly what this omits. Each
+entry's `version` is what a meeting created now would pin.
+</dd>
+</dl>
+</dd>
+</dl>
+
+#### 🔌 Usage
+
+<dl>
+<dd>
+
+<dl>
+<dd>
+
+```rust
+use revero::prelude::*;
+
+#[tokio::main]
+async fn main() {
+    let config = ClientConfig {
+        username: Some("<username>".to_string()),
+        password: Some("<password>".to_string()),
+        ..Default::default()
+    };
+    let client = GeneratedReveroClient::new(config).expect("Failed to build client");
+    client.public_api.list_public_output_profiles(None).await;
+}
+```
+</dd>
+</dl>
+</dd>
+</dl>
+
+
+</dd>
+</dl>
+</details>
+
 <details><summary><code>client.public_api.<a href="/src/api/resources/public_api/client.rs">create_public_meeting</a>(request: MeetingCreate) -> Result&lt;MeetingRead, ApiError&gt;</code></summary>
 <dl>
 <dd>
@@ -195,7 +250,11 @@ async fn main() {
 <dl>
 <dd>
 
-**external_id:** `String` — Your own identifier for this meeting. Creation is idempotent on it: re-sending an identical request returns the same meeting with 200 instead of 201. Re-using it for a DIFFERENT request (other documents, another language) is a 409 `external_id_conflict`.
+**external_id:** `String`
+
+Your own identifier for this meeting. Creation is idempotent on it: re-sending an identical request returns the same meeting with 200 instead of 201. Re-using it for a DIFFERENT request (other documents, another language) is a 409 `external_id_conflict`.
+
+One meeting carries ONE recording, so this identifier is what decides the shape of your own data model. A gathering captured in several sittings, such as a lunch break or a session resumed the next day, is several meetings with several `external_id`s, not several recordings under one. Completing a second recording for a meeting already being processed is a 409 `meeting_already_processing`.
 
 </dd>
 </dl>

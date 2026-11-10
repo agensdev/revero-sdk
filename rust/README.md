@@ -18,8 +18,7 @@ use revero::{
 };
 
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-let revero = ReveroClient::new(ReveroClientOptions::new(
-    "https://api.revero.no",
+let revero = ReveroClient::new(ReveroClientOptions::production(
     std::env::var("REVERO_CLIENT_ID")?,
     std::env::var("REVERO_CLIENT_SECRET")?,
     vec![
@@ -28,6 +27,8 @@ let revero = ReveroClient::new(ReveroClientOptions::new(
         Scope::RecordingsWrite,
     ],
 ))?;
+// `ReveroClientOptions::for_environment(Environment::Staging, ..)` targets
+// staging, and `ReveroClientOptions::new(base_url, ..)` any other host.
 
 let meeting = revero
     .create_meeting(&MeetingCreate {

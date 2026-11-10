@@ -1,6 +1,6 @@
 ---
 title: Record from a browser
-description: Use the ready-made React recorder or the same durable core with your own interface.
+description: The ready-made React recorder, the headless core, and how to handle pauses, failures and interrupted recordings.
 slug: browser-recorder
 ---
 
@@ -20,6 +20,7 @@ import { ReveroRecorder } from "@revero/recorder/react"
 const store = new IndexedDbRecorderStore({ databaseName: `meeting-${meetingId}` })
 
 <ReveroRecorder
+  key={meetingId}
   store={store}
   adapter={{
     prepareRecording: async ({ contentType, sessionId }) =>
@@ -34,29 +35,188 @@ const store = new IndexedDbRecorderStore({ databaseName: `meeting-${meetingId}` 
         headers: { "Idempotency-Key": idempotencyKey },
       }).then((response) => response.json()),
   }}
+  labels={{ again: "New recording" }}
 />
 ```
 
-The component exposes explicit start, stop, confirm, retry and discard actions.
-Chunks remain in IndexedDB until your backend acknowledges the idempotent
-completion command.
+Every state renders one control: start while idle, pause or stop while
+recording, resume while paused, confirm or discard once stopped, confirm again
+after a failed upload, and record again once submitted. That last one resets
+the recorder to idle, so one mounted component records as many times as the
+person needs.
+
+Write the `adapter` inline if that reads best. The recorder is created once per
+mount and reads its options at call time, so a re-render of the surrounding
+component cannot restart a recording in progress. The other side of that:
+swapping `store` in place is not a reset. To record against a different
+meeting, remount with a React `key`, as above.
+
+For anything the component does not render, take the controller itself:
+
+```tsx
+<ReveroRecorder
+  store={store}
+  adapter={adapter}
+  onController={(controller) => {
+    controllerRef.current = controller
+  }}
+/>
+```
+
+## A meeting that takes a break
+
+`pause()` holds the recording open without capturing. `resume()` continues it.
+The audio is one continuous file with the break simply absent, which means one
+meeting, one transcript and no gap in the middle.
+
+Prefer that to stopping and starting again. A Revero meeting carries one
+recording, so two sittings are two meetings you then have to reconcile
+yourself. See [Model your meetings](/data-model).
+
+While paused, `status` stays `"recording"` and `paused` is `true`.
+
+## How long has this been running
+
+`elapsedMs(state, now)` is a pure function, exported from
+`@revero/recorder/core`. It is not a field on the state, because a duration
+that ticks would publish a new snapshot several times a second and re-render
+every consumer with it. Own the interval, and call this from it:
+
+```tsx
+import { elapsedMs } from "@revero/recorder/core"
+
+const [now, setNow] = useState(() => Date.now())
+useEffect(() => {
+  const timer = setInterval(() => setNow(Date.now()), 1000)
+  return () => clearInterval(timer)
+}, [])
+
+const seconds = Math.floor(elapsedMs(recorder, now) / 1000)
+```
+
+What you cannot reconstruct yourself is where the pauses were. That is what the
+function reads.
+
+## A level meter
+
+`controller.stream` is the live `MediaStream` while one is open. Attach your own
+`AnalyserNode` to it rather than opening a second `getUserMedia`:
+
+```ts
+const context = new AudioContext()
+const analyser = context.createAnalyser()
+context.createMediaStreamSource(controller.stream!).connect(analyser)
+```
+
+Do not stop its tracks. The recorder owns their lifetime and releases them on
+`stop()` and `discard()`.
+
+## Failures carry a code
+
+`state.error` is a human sentence we reword; `state.errorCode` is the contract.
+Branch on the code, and translate it yourself.
+
+| code                     | what happened                                              | what to offer                                 |
+| ------------------------ | ---------------------------------------------------------- | --------------------------------------------- |
+| `microphone_denied`      | the person refused the microphone, or the page may not ask | how to grant it in their browser              |
+| `microphone_unavailable` | a microphone exists but would not open                     | pick another device, close the app holding it |
+| `recording_unsupported`  | this browser has no recording API                          | a supported browser                           |
+| `no_supported_format`    | no candidate container was accepted                        | a supported browser                           |
+| `recording_interrupted`  | a recording was restored that never stopped                | upload what was captured, or discard          |
+| `upload_interrupted`     | a transfer was restored that never completed               | confirm again; the audio is still local       |
+| `empty_recording`        | nothing was captured                                       | discard and start again                       |
+| `prepare_failed`         | your backend could not get upload instructions             | retry                                         |
+| `upload_failed`          | the audio did not reach storage                            | retry; the audio is still local               |
+| `complete_failed`        | the audio landed, the completion command did not           | retry; this is safe, see below                |
+| `cleanup_failed`         | submitted, only the local cleanup failed                   | nothing; the recording is safe                |
+
+A refused microphone is state, not an exception you have to catch: `start()`
+rejects, and the recorder also lands on `idle` with the code set, so the
+component shows it without any work from you.
+
+One distinction worth making in your own wording. `recording_interrupted`
+shares a state with the four codes that imply a previous attempt
+(`upload_interrupted`, `prepare_failed`, `upload_failed`, `complete_failed`),
+but it means something different: a restored recording has never been sent at
+all. "Send again" is wrong for it. Give those four your retry wording, and give
+`recording_interrupted` a first-send wording of its own.
+
+### `upload_failed` with nothing in your server log
+
+If the upload appears in no log on either side, the request never left the
+browser. `@revero/recorder` sets `Content-Type` on the PUT, which is not a
+CORS-simple request, so the browser preflights the storage host first, and a
+refused preflight reaches you as `upload_failed` and `Failed to fetch`.
+
+Confirm it with the preflight itself, from a terminal:
+
+```bash
+curl -sS -o /dev/null -D - -X OPTIONS "<presigned url>" \
+  -H "Origin: https://your.app" \
+  -H "Access-Control-Request-Method: PUT" \
+  -H "Access-Control-Request-Headers: content-type"
+```
+
+A `200` carrying an `Access-Control-Allow-Origin` header means the browser path
+is open and the fault is elsewhere. Anything else is a storage-side CORS
+refusal: tell us your exact origin, because that is what the allowlist keys on.
+
+Note that the same PUT succeeds from `curl` even when no browser can make it,
+because `curl` does not preflight. A successful `curl` upload is therefore not
+evidence that the browser path works, and that asymmetry has hidden this
+failure before.
+
+## An interrupted recording comes back
+
+Chunks live in IndexedDB, so a closed tab, a reload or a flat battery does not
+lose the audio. On mount the recorder restores whatever it finds:
+
+- a recording that never stopped comes back as `stopped` with
+  `recording_interrupted`
+- a transfer that never completed comes back as `failed` with
+  `upload_interrupted`, and confirming again resumes it
+
+Restored state carries `restored: true` and the original `startedAt`, so you can
+say _we found an unfinished recording from 14:32_ rather than showing a bare
+send button with no explanation.
+
+```tsx
+if (recorder.restored && recorder.status === "stopped") {
+  const at = new Date(recorder.startedAt!).toLocaleTimeString()
+  // "We found an unfinished recording from 14:32."
+}
+```
+
+## About the idempotency key
+
+The adapter hands your backend an `idempotencyKey`. It is the recorder's own
+session id: stable for one recording, held in IndexedDB, and it survives the
+browser being closed and reopened.
+
+That is exactly the property a **replay** key needs, and it is why the browser
+supplies it rather than your backend minting one. Your backend still owns the
+decision: persist the key alongside the completion command, and send that same
+key if you have to replay. Nothing forces you to use ours, but a key your
+backend invents after a restart cannot replay a command sent before it.
+
+See [Reliability and recovery](/reliability) for replay against retry.
 
 ## Headless interface
 
 Use `useReveroRecorder(options)` from `@revero/recorder/react` for a custom
 React interface, or `createRecorder(options)` from `@revero/recorder/core` when
 the UI is not React. Both interfaces use the same state machine and
-`RecorderStore` contract.
+`RecorderStore` contract, and both expose `pause`, `resume` and the controller.
 
 ## Support matrix
 
-| Environment | Supported contract |
-| --- | --- |
-| React | 18 and 19 |
+| Environment | Supported contract                                                         |
+| ----------- | -------------------------------------------------------------------------- |
+| React       | 18 and 19                                                                  |
 | Next.js SSR | Importing the package is safe; recording begins only in a client component |
-| Chromium | Current stable and previous stable |
-| Firefox | Current stable and previous stable |
-| Safari | Current stable and previous stable |
+| Chromium    | Current stable and previous stable                                         |
+| Firefox     | Current stable and previous stable                                         |
+| Safari      | Current stable and previous stable                                         |
 
 The release gate builds a clean Next.js fixture, imports all four package
 entrypoints during SSR, and exercises the user-visible recorder actions in

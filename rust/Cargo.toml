@@ -1,6 +1,6 @@
 [package]
 name = "revero"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Typed Rust SDK for the Revero Public API"
 license = "Apache-2.0"
@@ -21,6 +21,7 @@ bytes = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 reqwest = { version = "0.12", features = ["json", "stream", "gzip", "rustls-tls"], default-features = false }
+base64 = "0.22"
 hmac = "0.12"
 httpdate = "1.0"
 sha2 = "0.10"

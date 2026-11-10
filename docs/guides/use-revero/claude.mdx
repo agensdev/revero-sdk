@@ -1,0 +1,65 @@
+---
+title: Connect Claude to Revero
+description: Add Revero as a custom connector in Claude on the web or in the desktop app.
+hide-page-actions: true
+---
+
+Revero connects to Claude as a custom connector. Custom connectors are
+available on the Free, Pro, Max, Team and Enterprise plans. The Free plan allows
+one.
+
+You need the server address:
+
+```text
+https://api.revero.no/mcp
+```
+
+<Note>
+  Your Revero organisation must have agent access. If [Connected
+  agents](https://revero.no/settings/agents) says it is not part of your organisation's
+  subscription, contact Revero at [support@revero.no](mailto:support@revero.no) first.
+</Note>
+
+## Pro, Max and Free
+
+1. In Claude, open **Customize**, then **Connectors**.
+2. Select **Add**, then **Add custom connector**.
+3. Name the connector `Revero` and paste the server address as the remote MCP
+   server URL. Leave the OAuth client settings empty: Claude registers itself
+   with Revero.
+4. Select **Add**.
+5. Select **Connect** on the Revero connector. A Revero sign-in page opens.
+6. Sign in with your Revero account. On the consent page, choose the
+   organisation and what Claude may do there, then approve.
+
+## Team and Enterprise
+
+An owner of your Claude organisation adds the connector once:
+
+1. Open **Organization settings**, then **Connectors**.
+2. Select **Add**, then **Custom**, then **Web**.
+3. Name the connector `Revero`, paste the server address, and add it.
+
+Each member then connects it for themselves:
+
+1. Open **Customize**, then **Connectors**, and find Revero.
+2. Select **Connect**, sign in with your Revero account, and approve on the
+   consent page.
+
+Adding the connector reaches nobody's meetings. Each person's own approval on
+the Revero consent page does that, for that person only.
+
+## Use it in a chat
+
+Select **+** at the lower left of the message box, open **Connectors**, and
+turn Revero on for the conversation. Then ask, for example, "summarise the
+decisions from my meetings this week".
+
+## Remove it
+
+- In Revero, open [Connected agents](https://revero.no/settings/agents) and
+  select **Remove access**. This is what withdraws the access.
+- In Claude, open **Customize**, then **Connectors**, and remove Revero.
+
+See [what you agree to](/use-revero/overview#what-you-agree-to) for what each
+permission on the consent page means.

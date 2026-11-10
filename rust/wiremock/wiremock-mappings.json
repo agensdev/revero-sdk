@@ -59,6 +59,38 @@
       }
     },
     {
+      "id": "a9ded470-1516-4097-9188-69e960d0006d",
+      "name": "List Output Profiles - default",
+      "request": {
+        "urlPathTemplate": "/public/v1/output-profiles",
+        "method": "GET",
+        "headers": {
+          "Authorization": {
+            "equalTo": "Basic dGVzdC11c2VybmFtZTp0ZXN0LXBhc3N3b3Jk"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": "[\n  {\n    \"key\": \"meeting_summary\",\n    \"version\": 1,\n    \"schema_version\": \"markdown.v1\",\n    \"description\": \"description\",\n    \"requires_generation\": true\n  }\n]",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "uuid": "a9ded470-1516-4097-9188-69e960d0006d",
+      "persistent": true,
+      "priority": 3,
+      "metadata": {
+        "mocklab": {
+          "created": {
+            "at": "2020-01-01T00:00:00.000Z",
+            "via": "SYSTEM"
+          }
+        }
+      },
+      "postServeActions": []
+    },
+    {
       "id": "ef0cac7a-6edc-49ad-a189-7c1ef565a240",
       "name": "Create Meeting - default",
       "request": {
@@ -307,6 +339,6 @@
     }
   ],
   "meta": {
-    "total": 9
+    "total": 10
   }
 }

@@ -1,0 +1,79 @@
+---
+title: Use Revero from an AI assistant
+description: Connect Claude, ChatGPT or Claude Code to your meetings, decide what the assistant may do, and take the access back.
+hide-page-actions: true
+---
+
+Revero has an MCP server: an address an AI assistant connects to so it can
+work with your meetings on your behalf. Claude, ChatGPT and Claude Code can all
+connect to it. Once connected, you can ask the assistant things like "what did
+we decide in yesterday's project meeting?" or "move last week's customer
+meetings to the Sales folder".
+
+## The server address
+
+```text
+https://api.revero.no/mcp
+```
+
+You can also copy it from [Settings → Connected agents](https://revero.no/settings/agents)
+in Revero, where the steps for each assistant are repeated.
+
+<Note>
+  This documentation site has its own MCP server, for searching these pages. That one is for coding
+  tools and cannot read your meetings. Use the address above.
+</Note>
+
+## Your organisation needs agent access
+
+Agent access is part of an organisation's subscription. If Connected agents
+says agent access is not part of your organisation's subscription, an assistant
+cannot reach your meetings in that organisation. Contact Revero at
+[support@revero.no](mailto:support@revero.no) to get it.
+
+## What you agree to
+
+The first time an assistant connects, it opens a Revero sign-in page. Sign in
+with the account you use in Revero. The consent page that follows asks two
+things.
+
+**Which organisation.** One approval covers one organisation. If you belong to
+several, connect the assistant again for each one you want it to reach.
+
+**What the assistant may do.** Reading your notes is always included. Every
+other permission is a separate checkbox, and you can leave any of them
+unticked.
+
+| Permission                 | What it lets the assistant do                                                                                  |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Read notes and folders     | Always included. Read meeting notes, folders, meeting tracks and the review queue, but not the transcript.     |
+| Read the transcript        | Read the word for word text of what was said in the meeting. The transcript leaves Revero when you grant this. |
+| Organise notes             | Change folders, meeting tracks and process runs.                                                               |
+| Share notes                | Create public links and share notes with people, groups or organisations.                                      |
+| Move meetings to the trash | Move meetings to the trash. They can be restored until the trash is emptied.                                   |
+
+The assistant acts as you. It can only reach what you can reach yourself in
+that organisation.
+
+The trash is emptied after a set number of days, and your organisation's
+retention policy can remove a meeting sooner. After that it is deleted for
+good.
+
+## Narrow or remove access
+
+Open [Settings → Connected agents](https://revero.no/settings/agents). Every
+assistant you have approved in the current organisation is listed there, with
+what it may do.
+
+- **Narrow access** takes permissions away. To give an assistant more, connect
+  it again from the assistant and approve the new permissions.
+- **Remove access** disconnects the assistant at its next request.
+
+Removing Revero inside the assistant does not withdraw what you approved.
+Remove the access in Connected agents as well.
+
+## Guides
+
+- [Claude](/use-revero/claude), on the web and in the desktop app
+- [ChatGPT](/use-revero/chatgpt), on the web
+- [Claude Code](/use-revero/claude-code), in the terminal

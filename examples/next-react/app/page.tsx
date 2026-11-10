@@ -51,6 +51,14 @@ class FakeMediaRecorder extends EventTarget {
     this.state = "recording"
   }
 
+  pause() {
+    this.state = "paused"
+  }
+
+  resume() {
+    this.state = "recording"
+  }
+
   stop() {
     this.state = "inactive"
     const chunk = new Event("dataavailable")
@@ -70,24 +78,26 @@ const mediaDevices = {
   },
 }
 
-const adapter = {
-  async prepareRecording() {
-    return {
-      recordingId: "recording-1",
-      upload: {
-        method: "PUT" as const,
-        url: "https://upload.example.test/recording-1",
-        headers: { "Content-Type": "audio/webm" },
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      },
-    }
-  },
-  async completeRecording() {
-    return {
-      operationId: "operation-1",
-      operationUrl: "/operations/operation-1",
-    }
-  },
+let completions = 0
+
+async function prepareRecording() {
+  return {
+    recordingId: "recording-1",
+    upload: {
+      method: "PUT" as const,
+      url: "https://upload.example.test/recording-1",
+      headers: { "Content-Type": "audio/webm" },
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+  }
+}
+
+async function completeRecording() {
+  completions += 1
+  return {
+    operationId: `operation-${completions}`,
+    operationUrl: `/operations/operation-${completions}`,
+  }
 }
 
 async function upload() {
@@ -97,12 +107,21 @@ async function upload() {
 export default function RecorderFixture() {
   const store = useMemo(() => new MemoryStore(), [])
   const [operationId, setOperationId] = useState<string>()
+  const [renders, setRenders] = useState(0)
 
+  // The adapter is an inline object literal, exactly as the README and the
+  // documentation site write it, so its identity changes on every render of
+  // this component. "Re-render owner" is how the spec forces that to happen
+  // while a recording is in progress.
   return (
     <main>
       <h1>Recorder release fixture</h1>
+      <button type="button" onClick={() => setRenders((count) => count + 1)}>
+        Re-render owner
+      </button>
+      <output aria-label="Owner renders">{renders}</output>
       <ReveroRecorder
-        adapter={adapter}
+        adapter={{ prepareRecording, completeRecording }}
         store={store}
         mediaDevices={mediaDevices}
         MediaRecorder={FakeMediaRecorder as unknown as typeof MediaRecorder}

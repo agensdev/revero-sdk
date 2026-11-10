@@ -3,7 +3,7 @@ pub use crate::prelude::*;
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum OauthScope {
-    /// Read meetings, outputs, and operation status
+    /// Read meetings, outputs, operation status, and the output profile catalogue
     MeetingsRead,
     /// Create meetings
     MeetingsWrite,

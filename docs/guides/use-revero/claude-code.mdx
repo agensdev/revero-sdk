@@ -1,0 +1,47 @@
+---
+title: Connect Claude Code to Revero
+description: Add Revero as a remote MCP server in Claude Code and sign in from the terminal.
+hide-page-actions: true
+---
+
+<Note>
+  Your Revero organisation must have agent access. If [Connected
+  agents](https://revero.no/settings/agents) says it is not part of your organisation's
+  subscription, contact Revero at [support@revero.no](mailto:support@revero.no) first.
+</Note>
+
+## Add Revero
+
+Run this in a terminal:
+
+```bash
+claude mcp add --transport http revero https://api.revero.no/mcp
+```
+
+That makes Revero available in the current project. To have it in every
+project, add `--scope user`:
+
+```bash
+claude mcp add --transport http --scope user revero https://api.revero.no/mcp
+```
+
+## Sign in
+
+1. Start Claude Code and type `/mcp`.
+2. Select **revero**, then **Authenticate**. Your browser opens a Revero
+   sign-in page.
+3. Sign in with your Revero account. On the consent page, choose the
+   organisation and what Claude Code may do there, then approve.
+4. Back in the terminal, `/mcp` lists revero as connected.
+
+Then ask, for example, "find my meetings about the budget this month in
+Revero".
+
+## Remove it
+
+- In Revero, open [Connected agents](https://revero.no/settings/agents) and
+  select **Remove access**. This is what withdraws the access.
+- In the terminal, run `claude mcp remove revero`.
+
+See [what you agree to](/use-revero/overview#what-you-agree-to) for what each
+permission on the consent page means.

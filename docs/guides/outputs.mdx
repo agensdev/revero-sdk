@@ -1,0 +1,95 @@
+---
+title: What the documents contain
+description: The three output profiles, the markdown they produce, the citation markup inside it, and what a schema version promises.
+slug: outputs
+---
+
+A meeting produces one output per profile you named at creation. Each is
+fetched on its own, once its `status` is `completed`.
+
+## The profiles
+
+| key               | schema version  | what it is                                   | needs generation |
+| ----------------- | --------------- | -------------------------------------------- | ---------------- |
+| `transcript`      | `transcript.v1` | verbatim transcript with per-segment timings | no               |
+| `meeting_summary` | `markdown.v1`   | full meeting minutes                         | yes              |
+| `action_items`    | `markdown.v1`   | decisions and follow-up actions              | yes              |
+
+Name none and you get `transcript` alone: the cheapest correct answer, and the
+only one that survives a generation outage, because it needs no model.
+
+`GET /output-profiles` lists what your organisation may actually name, resolved
+for your organisation rather than copied from this table. Read it rather than
+hard-coding, and an unknown key is refused as `unknown_output_profile` with
+both the offending keys and the valid ones in the message.
+
+## `transcript.v1`
+
+`content` is the segment texts joined by blank lines. `structured_data` is the
+useful half:
+
+```json
+{
+  "segments": [
+    { "start_ms": 0, "end_ms": 4120, "text": "Da erklærer jeg møtet for satt." },
+    { "start_ms": 4120, "end_ms": 9880, "text": "Første sak er godkjenning av innkalling." }
+  ]
+}
+```
+
+Segments are in timeline order. There are no speaker names: what a transcription
+model separates out is a voice, not a person, and we do not publish a guess
+about who it belongs to.
+
+## `markdown.v1`
+
+`content` is CommonMark. `structured_data` is null for these two profiles.
+
+The markdown is not plain: sentences grounded in the meeting are wrapped in a
+`<cite>` element.
+
+```markdown
+Styret vedtok <cite data-seg="42">å etablere et samarbeid med nabolaget</cite>.
+```
+
+- `data-seg` marks a transcript segment as the evidence
+- `data-page` marks a page in a document you supplied
+- `data-src` is optional and says which source it came from
+
+Two things follow, and the first one bites in production.
+
+**Render it, and your users see the tags.** The wrapped text is ordinary prose
+that reads correctly without them, so if you do not want provenance in your
+interface, remove the `<cite>` elements before rendering. Removing the tags is
+right; escaping them is not.
+
+```ts
+const plain = content.replace(/<\/?cite[^>]*>/g, "")
+```
+
+**The numbers do not resolve today.** They are our internal segment numbering,
+and the `transcript` output does not carry it. Treat a `<cite>` as a signal
+that a sentence is grounded, not as a join key into the transcript. If you want
+to align a passage with audio, use the `start_ms`/`end_ms` in
+`transcript.v1` instead.
+
+## What a schema version promises
+
+`schema_version` describes the shape of `content` and `structured_data`. It is
+separate from the profile's own `version`, which is pinned onto your meeting at
+creation.
+
+Publishing a new profile version never changes a meeting that already exists.
+A meeting created against `meeting_summary` v1 keeps being produced the way v1
+said, even after v2 ships. That is what makes it safe for you to store a
+document and not re-fetch it.
+
+Branch on `schema_version` if you parse `structured_data`. A new shape arrives
+as a new version, never as a changed one.
+
+## Failures are typed
+
+An output that could not be produced reaches `status: "failed"` and carries a
+`failure_code` and a `retryable` boolean. Branch on those. Log the message, but
+never parse it: the message is prose we reword, and the code is the contract.
+See [Reliability and recovery](/reliability).

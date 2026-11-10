@@ -42,6 +42,9 @@ pub struct PublicWebhookData {
     /// Whether a failed operation may succeed when retried.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retryable: Option<bool>,
+    /// Authenticated resources whose current state is authoritative.
+    #[serde(default)]
+    pub links: PublicWebhookLinks,
 }
 
 impl PublicWebhookData {
@@ -66,6 +69,7 @@ pub struct PublicWebhookDataBuilder {
     schema_version: Option<String>,
     failure_code: Option<PublicFailureCode>,
     retryable: Option<bool>,
+    links: Option<PublicWebhookLinks>,
 }
 
 impl PublicWebhookDataBuilder {
@@ -134,11 +138,17 @@ impl PublicWebhookDataBuilder {
         self
     }
 
+    pub fn links(mut self, value: PublicWebhookLinks) -> Self {
+        self.links = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`PublicWebhookData`].
     /// This method will fail if any of the following fields are not set:
     /// - [`meeting_id`](PublicWebhookDataBuilder::meeting_id)
     /// - [`external_id`](PublicWebhookDataBuilder::external_id)
     /// - [`operation_id`](PublicWebhookDataBuilder::operation_id)
+    /// - [`links`](PublicWebhookDataBuilder::links)
     pub fn build(self) -> Result<PublicWebhookData, BuildError> {
         Ok(PublicWebhookData {
             meeting_id: self
@@ -160,6 +170,9 @@ impl PublicWebhookDataBuilder {
             schema_version: self.schema_version,
             failure_code: self.failure_code,
             retryable: self.retryable,
+            links: self
+                .links
+                .ok_or_else(|| BuildError::missing_field("links"))?,
         })
     }
 }
